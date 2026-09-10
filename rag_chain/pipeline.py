@@ -1,12 +1,12 @@
-"""End-to-end multimodal RAG chain: retrieve context, then synthesize an answer with GPT-4o."""
+"""End-to-end multimodal RAG chain: retrieve context, then synthesize an answer with the configured LLM."""
 from operator import itemgetter
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
-from langchain_openai import ChatOpenAI
 
-from config import settings
+from config.llm_factory import get_chat_model
 from processing import split_image_text_types
 from rag_chain.prompts import ANALYST_SYSTEM_INSTRUCTIONS
 from rag_chain.utils import plt_img_base64
@@ -28,9 +28,9 @@ def multimodal_prompt_function(data_dict):
     return [HumanMessage(content=messages)]
 
 
-def build_multimodal_rag_chain(retriever, llm: ChatOpenAI = None):
+def build_multimodal_rag_chain(retriever, llm: BaseChatModel = None):
     """Return a runnable that accepts {'input': question} and yields {..., 'context', 'answer'}."""
-    llm = llm or ChatOpenAI(model_name=settings.CHATGPT_MODEL, temperature=settings.LLM_TEMPERATURE)
+    llm = llm or get_chat_model()
 
     multimodal_rag = (
         {"context": itemgetter("context"), "question": itemgetter("input")}

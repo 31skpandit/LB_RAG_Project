@@ -12,9 +12,18 @@ load_dotenv()
 
 class Settings:
     # LLM / embeddings
+    # Toggle provider to test with the free-tier Gemini API instead of OpenAI.
+    # One of: openai, gemini
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai")
+
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     CHATGPT_MODEL: str = os.getenv("CHATGPT_MODEL", "gpt-4o")
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+
+    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+    GEMINI_CHAT_MODEL: str = os.getenv("GEMINI_CHAT_MODEL", "gemini-1.5-flash")
+    GEMINI_EMBEDDING_MODEL: str = os.getenv("GEMINI_EMBEDDING_MODEL", "models/text-embedding-004")
+
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0"))
 
     # Data sources
@@ -49,8 +58,30 @@ class Settings:
             os.environ["OPENAI_API_KEY"] = cls.OPENAI_API_KEY
         return cls.OPENAI_API_KEY
 
+    @classmethod
+    def ensure_google_key(cls) -> str:
+        """Return the Google (Gemini) key, prompting interactively if not set via env/.env."""
+        if not cls.GOOGLE_API_KEY:
+            from getpass import getpass
+
+            cls.GOOGLE_API_KEY = getpass("Enter Google (Gemini) API Key: ")
+            os.environ["GOOGLE_API_KEY"] = cls.GOOGLE_API_KEY
+        else:
+            os.environ["GOOGLE_API_KEY"] = cls.GOOGLE_API_KEY
+        return cls.GOOGLE_API_KEY
+
+    @classmethod
+    def ensure_llm_key(cls) -> str:
+        """Ensure the API key for the configured LLM_PROVIDER is set, prompting if needed."""
+        if cls.LLM_PROVIDER == "gemini":
+            return cls.ensure_google_key()
+        return cls.ensure_openai_key()
+
 
 settings = Settings()
+
+if settings.LLM_PROVIDER not in ("openai", "gemini"):
+    raise ValueError(f"Invalid LLM_PROVIDER {settings.LLM_PROVIDER!r}. Expected 'openai' or 'gemini'.")
 
 if settings.CHUNKING_STRATEGY not in settings.CHUNKING_STRATEGIES:
     raise ValueError(

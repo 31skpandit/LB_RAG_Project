@@ -1,12 +1,13 @@
-"""Summarize images with a multimodal LLM (GPT-4o vision) for retrieval indexing."""
+"""Summarize images with a multimodal LLM (vision) for retrieval indexing."""
 import base64
 import os
 from typing import List, Tuple
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
 
 from config import settings
+from config.llm_factory import get_chat_model
 
 IMAGE_SUMMARY_PROMPT = """You are an assistant tasked with summarizing images for retrieval.
             Remember these images could potentially contain graphs, charts or tables also.
@@ -22,8 +23,8 @@ def encode_image(image_path: str) -> str:
         return base64.b64encode(image_file.read()).decode("utf-8")
 
 
-def summarize_image(img_base64: str, prompt: str = IMAGE_SUMMARY_PROMPT, llm: ChatOpenAI = None) -> str:
-    llm = llm or ChatOpenAI(model=settings.CHATGPT_MODEL, temperature=settings.LLM_TEMPERATURE)
+def summarize_image(img_base64: str, prompt: str = IMAGE_SUMMARY_PROMPT, llm: BaseChatModel = None) -> str:
+    llm = llm or get_chat_model()
     msg = llm.invoke(
         [
             HumanMessage(
@@ -37,7 +38,7 @@ def summarize_image(img_base64: str, prompt: str = IMAGE_SUMMARY_PROMPT, llm: Ch
     return msg.content
 
 
-def generate_img_summaries(figures_dir: str = None, llm: ChatOpenAI = None) -> Tuple[List[str], List[str]]:
+def generate_img_summaries(figures_dir: str = None, llm: BaseChatModel = None) -> Tuple[List[str], List[str]]:
     """Encode every .jpg in `figures_dir` and generate a retrieval-oriented summary for each.
 
     Returns (base64_images, image_summaries), both in filename-sorted order.

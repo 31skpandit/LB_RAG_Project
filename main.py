@@ -17,7 +17,7 @@ from summarization import generate_img_summaries, summarize_texts_and_tables
 
 def build_pipeline(pdf_path: str = None, pdf_url: str = None, figures_dir: str = None):
     """Run ingestion, summarization, and indexing. Returns a ready-to-query RAG chain."""
-    settings.ensure_openai_key()
+    settings.ensure_llm_key()
 
     figures_dir = figures_dir or settings.FIGURES_DIR
     pdf_path = pdf_path or download_pdf(url=pdf_url)

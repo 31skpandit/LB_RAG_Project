@@ -76,6 +76,33 @@ have working defaults in `.env.example`, so no other values are required to get 
 Then ask questions interactively, or import `rag_chain.pipeline.multimodal_rag_qa`
 in a notebook/script for exploration.
 
+### Running on Windows
+
+`scripts/install_system_deps.sh` is Bash + `apt-get` based (Debian/Ubuntu only) and
+will **not** work in `cmd`/PowerShell, or even under Git Bash (no `sudo`/`apt-get`
+there). Run the whole Quick start sequence inside **WSL2 (Ubuntu)** instead:
+
+```cmd
+wsl -d Ubuntu
+```
+
+Then, from inside the WSL Ubuntu shell, `cd` to this project (Windows drives are
+mounted under `/mnt/`, e.g. `cd "/mnt/d/Santosh/Data Science/Gen AI/Projects using Gen AI/RAG"`)
+and run the same 5 Quick start steps above (`pip install -r requirements.txt`,
+`bash scripts/install_system_deps.sh`, etc.) there. Use a Python venv inside WSL
+(`python3 -m venv .venv && source .venv/bin/activate`) rather than reusing a Windows
+virtualenv. Step 2 will install tesseract/poppler and start `redis-stack-server`
+inside WSL — it's reachable from both WSL and Windows at `localhost:6379`, so
+`REDIS_URL=redis://localhost:6379` works unchanged.
+
+If Redis stops being reachable after a reboot (WSL doesn't keep background daemons
+running across restarts), just re-run inside WSL:
+
+```bash
+redis-stack-server --daemonize yes
+redis-cli ping   # should print PONG
+```
+
 ## Configuration
 
 All settings live in `config/settings.py` and are overridable via `.env` (see

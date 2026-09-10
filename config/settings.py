@@ -23,10 +23,14 @@ class Settings:
     FIGURES_DIR: str = os.getenv("FIGURES_DIR", "./data/figures")
 
     # Unstructured partitioning
-    CHUNKING_STRATEGY: str = "by_title"
-    MAX_CHARACTERS: int = 4000
-    NEW_AFTER_N_CHARS: int = 4000
-    COMBINE_TEXT_UNDER_N_CHARS: int = 2000
+    # Toggle to compare chunking behavior: "by_title"/"basic" run natively inside
+    # Unstructured; "recursive"/"sentence"/"paragraph" are applied afterwards
+    # by processing/chunking.py. See CHUNKING_STRATEGIES for all valid values.
+    CHUNKING_STRATEGIES = ("by_title", "basic", "recursive", "sentence", "paragraph")
+    CHUNKING_STRATEGY: str = os.getenv("CHUNKING_STRATEGY", "by_title")
+    MAX_CHARACTERS: int = int(os.getenv("MAX_CHARACTERS", "4000"))
+    NEW_AFTER_N_CHARS: int = int(os.getenv("NEW_AFTER_N_CHARS", "4000"))
+    COMBINE_TEXT_UNDER_N_CHARS: int = int(os.getenv("COMBINE_TEXT_UNDER_N_CHARS", "2000"))
 
     # Retrieval backends
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
@@ -47,3 +51,11 @@ class Settings:
 
 
 settings = Settings()
+
+if settings.CHUNKING_STRATEGY not in settings.CHUNKING_STRATEGIES:
+    raise ValueError(
+        f"Invalid CHUNKING_STRATEGY {settings.CHUNKING_STRATEGY!r}. "
+        f"Expected one of {settings.CHUNKING_STRATEGIES}."
+    )
+
+

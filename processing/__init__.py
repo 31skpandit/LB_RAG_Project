@@ -5,6 +5,12 @@ from .element_splitter import (
     is_image_data,
     split_image_text_types,
 )
+from .chunking import (
+    NATIVE_STRATEGIES,
+    CUSTOM_STRATEGIES,
+    SUPPORTED_STRATEGIES,
+    apply_custom_chunking,
+)
 
 __all__ = [
     "html_table_to_markdown",
@@ -13,4 +19,8 @@ __all__ = [
     "looks_like_base64",
     "is_image_data",
     "split_image_text_types",
+    "NATIVE_STRATEGIES",
+    "CUSTOM_STRATEGIES",
+    "SUPPORTED_STRATEGIES",
+    "apply_custom_chunking",
 ]

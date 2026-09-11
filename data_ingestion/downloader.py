@@ -18,5 +18,8 @@ def download_pdf(url: str = None, dest_path: str = None) -> str:
     if os.path.exists(dest_path):
         return dest_path
 
-    urllib.request.urlretrieve(url, dest_path)
+    # Some hosts (e.g. sgp.fas.org) reject requests without a browser-like User-Agent.
+    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(request) as response, open(dest_path, "wb") as out_file:
+        out_file.write(response.read())
     return dest_path

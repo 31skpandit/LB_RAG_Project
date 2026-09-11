@@ -15,7 +15,7 @@ def download_pdf(url: str = None, dest_path: str = None) -> str:
 
     os.makedirs(os.path.dirname(dest_path) or ".", exist_ok=True)
 
-    if os.path.exists(dest_path):
+    if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
         return dest_path
 
     # Some hosts (e.g. sgp.fas.org) reject requests without a browser-like User-Agent.

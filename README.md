@@ -65,6 +65,7 @@ bash scripts/install_system_deps.sh     # 2. tesseract, poppler, redis-stack-ser
 python scripts/download_nltk_data.py    # 3. NLTK punkt/POS tagger data
 cp .env.example .env                    # 4. fill in OPENAI_API_KEY (required, no default)
 python main.py --pdf-url https://sgp.fas.org/crs/misc/IF10244.pdf   # 5. run the pipeline
+python main.py --pdf-path ./data/IF10244.pdf # 5. run the pipeline as file already downloaded in data folder
 ```
 
 Step 4 must happen before step 5: `config/settings.py` loads `.env` on import, and
@@ -152,7 +153,7 @@ base64 strings), you can replace any single file without cascading changes elsew
 wsl --install
 wsl
 cd /mnt/d/Santosh/Data\ Science/Gen\ AI/Projects\ using\ Gen\ AI/RAG
-python3 -m venv .venv
+python3 -m venv .venv - this only when new .venv to create
 source .venv/bin/activate
 pip install -r requirements.txt
 python main.py

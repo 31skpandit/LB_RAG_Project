@@ -1,8 +1,11 @@
 langchain==0.3.10
+langchain-core<0.4
 langchain-openai==0.2.12
 langchain-community==0.3.11
 langchain-chroma==0.1.4
-langchain-text-splitterslangchain-google-genairedis>=4.1.0
+langchain-text-splitters
+langchain-google-genai
+redis>=4.1.0
 unstructured[pdf]==0.16.11
 htmltabletomd==1.0.0
 nltk

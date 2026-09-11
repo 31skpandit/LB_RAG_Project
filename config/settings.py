@@ -14,7 +14,7 @@ class Settings:
     # LLM / embeddings
     # Toggle provider to test with the free-tier Gemini API instead of OpenAI.
     # One of: openai, gemini
-    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai")
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "gemini")
 
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     CHATGPT_MODEL: str = os.getenv("CHATGPT_MODEL", "gpt-4o")

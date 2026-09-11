@@ -7,6 +7,7 @@ langchain-text-splitters
 langchain-google-genai
 redis>=4.1.0
 unstructured[pdf]==0.16.11
+pdfminer.six==20231228
 htmltabletomd==1.0.0
 nltk
 python-dotenv

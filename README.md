@@ -146,3 +146,13 @@ Each folder is a seam where you can swap implementations to experiment, e.g.:
 
 Because each stage only depends on plain Python objects (lists of `Document`s, dicts,
 base64 strings), you can replace any single file without cascading changes elsewhere.
+
+## Running through WSL in terminal of VS Code :- 
+
+wsl --install
+wsl
+cd /mnt/d/Santosh/Data\ Science/Gen\ AI/Projects\ using\ Gen\ AI/RAG
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python main.py

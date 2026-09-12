@@ -1,0 +1,20 @@
+1. Codebase is doing multiple API call to Gemini 
+2. 
+
+
+Need to learn more about API :-
+i- concurrency 
+ii-rate limit
+iii-headers
+
+Model :-
+Using local RAG for running projects
+
+Things to remember while designing RAG projects :-
+1. How much concurrency call its making 
+2. Rate limit
+3. How each of retriever and chunking is working 
+4. 
+
+Plan :-
+1. Make codebase such that its using both Ollama ; OpenAI and Gemini Free for LLM + Text Embedding model.

@@ -61,18 +61,19 @@ Run these steps in order — each one depends on the previous:
 
 ```bash
 pip install -r requirements.txt         # 1. Python deps
-bash scripts/install_system_deps.sh     # 2. tesseract, poppler, redis-stack-server
+bash scripts/install_system_deps.sh     # 2. tesseract, poppler, redis-server
 python scripts/download_nltk_data.py    # 3. NLTK punkt/POS tagger data
-cp .env.example .env                    # 4. fill in OPENAI_API_KEY (required, no default)
+cp .env.example .env                    # 4. set LLM_PROVIDER + its API key (see Configuration)
 python main.py --pdf-url https://sgp.fas.org/crs/misc/IF10244.pdf   # 5. run the pipeline
 python main.py --pdf-path ./data/IF10244.pdf # 5. run the pipeline as file already downloaded in data folder
 ```
 
 Step 4 must happen before step 5: `config/settings.py` loads `.env` on import, and
-`main.py` reads `OPENAI_API_KEY` from it immediately. If it's missing, the pipeline
-falls back to an interactive `getpass` prompt instead of failing outright.
-`CHATGPT_MODEL` (`gpt-4o`) and `EMBEDDING_MODEL` (`text-embedding-3-small`) already
-have working defaults in `.env.example`, so no other values are required to get started.
+`main.py` reads the API key for the configured `LLM_PROVIDER` immediately. If it's
+missing (and the provider isn't `ollama`, which needs no key), the pipeline falls
+back to an interactive `getpass` prompt instead of failing outright. Each provider's
+model names already have working defaults in `.env.example` — see the LLM provider
+toggle table below for how to switch providers.
 
 Then ask questions interactively, or import `rag_chain.pipeline.multimodal_rag_qa`
 in a notebook/script for exploration.
@@ -92,15 +93,18 @@ mounted under `/mnt/`, e.g. `cd "/mnt/d/Santosh/Data Science/Gen AI/Projects usi
 and run the same 5 Quick start steps above (`pip install -r requirements.txt`,
 `bash scripts/install_system_deps.sh`, etc.) there. Use a Python venv inside WSL
 (`python3 -m venv .venv && source .venv/bin/activate`) rather than reusing a Windows
-virtualenv. Step 2 will install tesseract/poppler and start `redis-stack-server`
+virtualenv. Step 2 will install tesseract/poppler and start plain `redis-server`
 inside WSL — it's reachable from both WSL and Windows at `localhost:6379`, so
-`REDIS_URL=redis://localhost:6379` works unchanged.
+`REDIS_URL=redis://localhost:6379` works unchanged. (Plain Redis is enough here:
+`retrieval/doc_store.py` only uses it as a key-value store for raw text/table/
+image content — vector search is handled by Chroma — so none of Redis Stack's
+extra modules are needed.)
 
 If Redis stops being reachable after a reboot (WSL doesn't keep background daemons
 running across restarts), just re-run inside WSL:
 
 ```bash
-redis-stack-server --daemonize yes
+redis-server --daemonize yes
 redis-cli ping   # should print PONG
 ```
 
@@ -111,13 +115,55 @@ All settings live in `config/settings.py` and are overridable via `.env` (see
 
 | Variable                    | Default        | Purpose                                              |
 |------------------------------|----------------|-------------------------------------------------------|
-| `OPENAI_API_KEY`              | (required)     | LLM/embedding calls                                   |
+| `LLM_PROVIDER`                 | `gemini`       | `openai`, `gemini`, `ollama`, or `qwen` — see below     |
+| `OPENAI_API_KEY`              | (required for `openai`) | LLM/embedding calls                          |
 | `CHATGPT_MODEL`                | `gpt-4o`       | Chat model for summaries & answers                    |
 | `EMBEDDING_MODEL`              | `text-embedding-3-small` | Embedding model for the vector store        |
+| `GOOGLE_API_KEY`               | (required for `gemini`) | LLM/embedding calls, free tier             |
+| `GEMINI_CHAT_MODEL`            | `gemini-1.5-flash` | Chat model for summaries & answers                |
+| `GEMINI_EMBEDDING_MODEL`       | `models/gemini-embedding-001` | Embedding model for the vector store |
+| `OLLAMA_BASE_URL`              | `http://localhost:11434` | Local Ollama server URL                     |
+| `OLLAMA_CHAT_MODEL`            | `qwen3-vl:4b`  | Chat model for summaries & answers (must support vision) |
+| `OLLAMA_EMBEDDING_MODEL`       | `qwen3-embedding:0.6b` | Embedding model for the vector store       |
+| `QWEN_API_KEY`                 | (required for `qwen`) | LLM/embedding calls, free tier via DashScope  |
+| `QWEN_BASE_URL`                | DashScope intl. compatible endpoint | Qwen/DashScope API base URL        |
+| `QWEN_CHAT_MODEL`              | `qwen-vl-plus` | Chat model for summaries & answers (must support vision) |
+| `QWEN_EMBEDDING_MODEL`         | `text-embedding-v3` | Embedding model for the vector store              |
 | `CHUNKING_STRATEGY`            | `by_title`     | Text chunking strategy, see below                     |
 | `MAX_CHARACTERS`               | `4000`         | Max chars per chunk                                   |
 | `NEW_AFTER_N_CHARS`            | `4000`         | Soft chunk-size target                                |
 | `COMBINE_TEXT_UNDER_N_CHARS`   | `2000`         | Merge small elements below this size                  |
+
+### LLM provider toggle
+
+`config/llm_factory.py` builds the chat/vision model and the embedding model
+from a single `LLM_PROVIDER` setting. Every pipeline stage (summarization,
+image summarization, embeddings, answer synthesis) goes through this factory,
+so switching providers is a one-line `.env` change — no code edits needed.
+
+| `LLM_PROVIDER` | Chat + vision                 | Embeddings                    | API key needed? |
+|----------------|--------------------------------|--------------------------------|------------------|
+| `openai`       | `CHATGPT_MODEL` (`gpt-4o`)      | `EMBEDDING_MODEL`              | `OPENAI_API_KEY` |
+| `gemini`       | `GEMINI_CHAT_MODEL`             | `GEMINI_EMBEDDING_MODEL`       | `GOOGLE_API_KEY` (free tier) |
+| `ollama`       | `OLLAMA_CHAT_MODEL`             | `OLLAMA_EMBEDDING_MODEL`       | none (runs locally) |
+| `qwen`         | `QWEN_CHAT_MODEL`               | `QWEN_EMBEDDING_MODEL`         | `QWEN_API_KEY` (free tier) |
+
+To use Ollama: install it from [ollama.com](https://ollama.com), run
+`ollama pull qwen3-vl:4b && ollama pull qwen3-embedding:0.6b` (or whichever
+models you set), start the Ollama server, then set `LLM_PROVIDER=ollama` in
+`.env`. The chat model must support vision since it's also used to summarize
+images — plain `qwen3:4b` is text-only and will fail on that step; its
+vision-capable sibling `qwen3-vl:4b` is the same size class and handles both.
+This is also the option to reach for when a cloud provider's signup isn't
+available in your region (e.g. Alibaba's DashScope console for `qwen`).
+
+To use Qwen: create a free API key at
+[bailian.console.alibabacloud.com](https://bailian.console.alibabacloud.com/)
+(or the [international console](https://modelstudio.console.alibabacloud.com/)),
+set `QWEN_API_KEY` in `.env`, then set `LLM_PROVIDER=qwen`. It's routed through
+DashScope's OpenAI-compatible endpoint (`QWEN_BASE_URL`) via `langchain-openai`,
+so no extra dependency is needed. As with the other providers, the chat model
+must support vision (`qwen-vl-plus` by default).
 
 ### Chunking strategies
 

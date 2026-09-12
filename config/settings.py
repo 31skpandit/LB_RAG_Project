@@ -12,9 +12,11 @@ load_dotenv()
 
 class Settings:
     # LLM / embeddings
-    # Toggle provider to test with the free-tier Gemini API instead of OpenAI.
-    # One of: openai, gemini
+    # Toggle provider: swap the whole pipeline (chat + vision + embeddings) by
+    # changing this one value. No code changes needed elsewhere.
+    # One of: openai, gemini, ollama, qwen
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "gemini")
+    PROVIDERS = ("openai", "gemini", "ollama", "qwen")
 
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     CHATGPT_MODEL: str = os.getenv("CHATGPT_MODEL", "gpt-4o")
@@ -23,6 +25,23 @@ class Settings:
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
     GEMINI_CHAT_MODEL: str = os.getenv("GEMINI_CHAT_MODEL", "gemini-1.5-flash")
     GEMINI_EMBEDDING_MODEL: str = os.getenv("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-001")
+
+    # Ollama runs models locally, so no API key is needed. OLLAMA_CHAT_MODEL must
+    # be a vision-capable model (e.g. "qwen3-vl:4b", "llava") since it's also
+    # used to summarize images. Default picks the Qwen3 family: qwen3-vl:4b for
+    # chat+vision, qwen3-embedding:0.6b for embeddings (`ollama pull` both first).
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    OLLAMA_CHAT_MODEL: str = os.getenv("OLLAMA_CHAT_MODEL", "qwen3-vl:4b")
+    OLLAMA_EMBEDDING_MODEL: str = os.getenv("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:0.6b")
+
+    # Qwen (Alibaba) via DashScope's OpenAI-compatible endpoint, has a free tier.
+    # Get a key at https://bailian.console.alibabacloud.com/ (or the intl. console).
+    # QWEN_CHAT_MODEL must be a vision-capable model (e.g. "qwen-vl-plus") since
+    # it's also used to summarize images.
+    QWEN_API_KEY: str = os.getenv("QWEN_API_KEY", "")
+    QWEN_BASE_URL: str = os.getenv("QWEN_BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
+    QWEN_CHAT_MODEL: str = os.getenv("QWEN_CHAT_MODEL", "qwen-vl-plus")
+    QWEN_EMBEDDING_MODEL: str = os.getenv("QWEN_EMBEDDING_MODEL", "text-embedding-v3")
 
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0"))
 
@@ -71,17 +90,36 @@ class Settings:
         return cls.GOOGLE_API_KEY
 
     @classmethod
+    def ensure_qwen_key(cls) -> str:
+        """Return the Qwen (DashScope) key, prompting interactively if not set via env/.env."""
+        if not cls.QWEN_API_KEY:
+            from getpass import getpass
+
+            cls.QWEN_API_KEY = getpass("Enter Qwen (DashScope) API Key: ")
+            os.environ["QWEN_API_KEY"] = cls.QWEN_API_KEY
+        else:
+            os.environ["QWEN_API_KEY"] = cls.QWEN_API_KEY
+        return cls.QWEN_API_KEY
+
+    @classmethod
     def ensure_llm_key(cls) -> str:
-        """Ensure the API key for the configured LLM_PROVIDER is set, prompting if needed."""
+        """Ensure the API key for the configured LLM_PROVIDER is set, prompting if needed.
+
+        Ollama runs locally and needs no API key, so it's a no-op.
+        """
         if cls.LLM_PROVIDER == "gemini":
             return cls.ensure_google_key()
+        if cls.LLM_PROVIDER == "qwen":
+            return cls.ensure_qwen_key()
+        if cls.LLM_PROVIDER == "ollama":
+            return ""
         return cls.ensure_openai_key()
 
 
 settings = Settings()
 
-if settings.LLM_PROVIDER not in ("openai", "gemini"):
-    raise ValueError(f"Invalid LLM_PROVIDER {settings.LLM_PROVIDER!r}. Expected 'openai' or 'gemini'.")
+if settings.LLM_PROVIDER not in settings.PROVIDERS:
+    raise ValueError(f"Invalid LLM_PROVIDER {settings.LLM_PROVIDER!r}. Expected one of {settings.PROVIDERS}.")
 
 if settings.CHUNKING_STRATEGY not in settings.CHUNKING_STRATEGIES:
     raise ValueError(

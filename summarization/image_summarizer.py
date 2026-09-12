@@ -48,6 +48,9 @@ def generate_img_summaries(figures_dir: str = None, llm: BaseChatModel = None) -
     img_base64_list = []
     image_summaries = []
 
+    if not os.path.isdir(figures_dir):
+        return img_base64_list, image_summaries
+
     for img_file in sorted(os.listdir(figures_dir)):
         if img_file.endswith(".jpg"):
             img_path = os.path.join(figures_dir, img_file)

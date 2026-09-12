@@ -35,14 +35,14 @@ class Settings:
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     OLLAMA_CHAT_MODEL: str = os.getenv("OLLAMA_CHAT_MODEL", "qwen3-vl:2b")
     OLLAMA_EMBEDDING_MODEL: str = os.getenv("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:0.6b")
-    # Ollama defaults to a 4096-token context window regardless of what the model
-    # actually supports, silently truncating the prompt (often dropping the
-    # question itself) once retrieved context pushes past it -- causing empty or
-    # runaway "thinking" responses with no error. The RAG answer prompt combines
-    # several retrieved chunks/tables plus the question, so raise this well above
-    # the default; 8192 comfortably covers the ~4 documents this pipeline
-    # retrieves per query by default.
-    OLLAMA_NUM_CTX: int = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+    # Ollama's own default context window (4096) -- kept configurable in case a
+    # larger corpus/retrieval-k needs more, but NOTE: raising this to 8192 was
+    # tried as a fix for an empty-answer bug on this hardware and did NOT fix
+    # it, while roughly tripling generation time (bigger KV-cache -> less of
+    # the model fits in VRAM -> more CPU fallback). The empty-answer issue has
+    # a different root cause, still under investigation -- don't raise this
+    # again without solid evidence it's actually the fix.
+    OLLAMA_NUM_CTX: int = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
 
     # Qwen (Alibaba) via DashScope's OpenAI-compatible endpoint, has a free tier.
     # Get a key at https://bailian.console.alibabacloud.com/ (or the intl. console).

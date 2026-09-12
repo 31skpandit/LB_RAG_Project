@@ -27,11 +27,13 @@ class Settings:
     GEMINI_EMBEDDING_MODEL: str = os.getenv("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-001")
 
     # Ollama runs models locally, so no API key is needed. OLLAMA_CHAT_MODEL must
-    # be a vision-capable model (e.g. "qwen3-vl:4b", "llava") since it's also
-    # used to summarize images. Default picks the Qwen3 family: qwen3-vl:4b for
-    # chat+vision, qwen3-embedding:0.6b for embeddings (`ollama pull` both first).
+    # be a vision-capable model (e.g. "qwen3-vl:2b", "llava") since it's also
+    # used to summarize images. Default picks the Qwen3 family: qwen3-vl:2b for
+    # chat+vision (small enough to fit in ~4GB of VRAM on modest/laptop GPUs --
+    # bump to qwen3-vl:4b/8b on stronger hardware for better summary quality),
+    # qwen3-embedding:0.6b for embeddings (`ollama pull` both first).
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    OLLAMA_CHAT_MODEL: str = os.getenv("OLLAMA_CHAT_MODEL", "qwen3-vl:4b")
+    OLLAMA_CHAT_MODEL: str = os.getenv("OLLAMA_CHAT_MODEL", "qwen3-vl:2b")
     OLLAMA_EMBEDDING_MODEL: str = os.getenv("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:0.6b")
 
     # Qwen (Alibaba) via DashScope's OpenAI-compatible endpoint, has a free tier.

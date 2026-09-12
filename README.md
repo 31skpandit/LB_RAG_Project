@@ -123,7 +123,7 @@ All settings live in `config/settings.py` and are overridable via `.env` (see
 | `GEMINI_CHAT_MODEL`            | `gemini-1.5-flash` | Chat model for summaries & answers                |
 | `GEMINI_EMBEDDING_MODEL`       | `models/gemini-embedding-001` | Embedding model for the vector store |
 | `OLLAMA_BASE_URL`              | `http://localhost:11434` | Local Ollama server URL                     |
-| `OLLAMA_CHAT_MODEL`            | `qwen3-vl:4b`  | Chat model for summaries & answers (must support vision) |
+| `OLLAMA_CHAT_MODEL`            | `qwen3-vl:2b`  | Chat model for summaries & answers (must support vision) |
 | `OLLAMA_EMBEDDING_MODEL`       | `qwen3-embedding:0.6b` | Embedding model for the vector store       |
 | `QWEN_API_KEY`                 | (required for `qwen`) | LLM/embedding calls, free tier via DashScope  |
 | `QWEN_BASE_URL`                | DashScope intl. compatible endpoint | Qwen/DashScope API base URL        |
@@ -149,13 +149,19 @@ so switching providers is a one-line `.env` change — no code edits needed.
 | `qwen`         | `QWEN_CHAT_MODEL`               | `QWEN_EMBEDDING_MODEL`         | `QWEN_API_KEY` (free tier) |
 
 To use Ollama: install it from [ollama.com](https://ollama.com), run
-`ollama pull qwen3-vl:4b && ollama pull qwen3-embedding:0.6b` (or whichever
+`ollama pull qwen3-vl:2b && ollama pull qwen3-embedding:0.6b` (or whichever
 models you set), start the Ollama server, then set `LLM_PROVIDER=ollama` in
 `.env`. The chat model must support vision since it's also used to summarize
 images — plain `qwen3:4b` is text-only and will fail on that step; its
-vision-capable sibling `qwen3-vl:4b` is the same size class and handles both.
-This is also the option to reach for when a cloud provider's signup isn't
-available in your region (e.g. Alibaba's DashScope console for `qwen`).
+vision-capable sibling `qwen3-vl` family handles both. This is also the option
+to reach for when a cloud provider's signup isn't available in your region
+(e.g. Alibaba's DashScope console for `qwen`).
+
+Pick the `qwen3-vl` size based on your GPU's VRAM: `:2b` (~2GB) fits laptop/
+budget GPUs (e.g. 4GB VRAM); `:4b`/`:8b` need more VRAM but summarize with
+noticeably better quality. Check with `ollama ps` while a run is in progress —
+if `PROCESSOR` shows a CPU/GPU split instead of 100% GPU, the model doesn't
+fully fit in VRAM and inference will be much slower; drop to a smaller size.
 
 To use Qwen: create a free API key at
 [bailian.console.alibabacloud.com](https://bailian.console.alibabacloud.com/)

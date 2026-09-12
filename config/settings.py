@@ -18,6 +18,17 @@ class Settings:
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "gemini")
     PROVIDERS = ("openai", "gemini", "ollama", "qwen", "groq")
 
+    # Groq has no embeddings API for this account (confirmed via its live
+    # /models list -- despite some third-party docs/blogs claiming otherwise),
+    # so it can't build an embedding model. EMBEDDING_PROVIDER selects the
+    # embedding-model provider independently of LLM_PROVIDER, defaulting to
+    # match it so nothing changes for single-provider setups (openai/gemini/
+    # ollama/qwen all support both). Override it when LLM_PROVIDER=groq --
+    # e.g. EMBEDDING_PROVIDER=gemini -- to mix a fast Groq chat model with
+    # another provider's embeddings.
+    EMBEDDING_PROVIDER: str = os.getenv("EMBEDDING_PROVIDER", LLM_PROVIDER)
+    EMBEDDING_PROVIDERS = tuple(p for p in PROVIDERS if p != "groq")
+
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     CHATGPT_MODEL: str = os.getenv("CHATGPT_MODEL", "gpt-4o")
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
@@ -59,10 +70,14 @@ class Settings:
     # summaries -- Groq's vision models are currently Qwen-based and marked
     # "preview" (can be deprecated/rotated without much notice); check
     # https://console.groq.com/docs/vision if the default below stops working.
+    # Groq has no embeddings API for this account -- confirmed live, not just
+    # from docs (nomic-embed-text-v1_5 404s, and no embedding model appears in
+    # the account's /v1/models list at all). So there's no GROQ_EMBEDDING_MODEL
+    # here; see EMBEDDING_PROVIDER above for how embeddings are handled when
+    # LLM_PROVIDER=groq.
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
     GROQ_BASE_URL: str = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
     GROQ_CHAT_MODEL: str = os.getenv("GROQ_CHAT_MODEL", "qwen/qwen3.6-27b")
-    GROQ_EMBEDDING_MODEL: str = os.getenv("GROQ_EMBEDDING_MODEL", "nomic-embed-text-v1_5")
     # Groq's free tier enforces output-tokens-per-minute (OTPM), separate from
     # (and tighter than) the general tokens-per-minute limit -- 1000 OTPM for
     # qwen/qwen3.6-27b as of writing. Without an explicit cap, the client lets
@@ -162,6 +177,13 @@ settings = Settings()
 
 if settings.LLM_PROVIDER not in settings.PROVIDERS:
     raise ValueError(f"Invalid LLM_PROVIDER {settings.LLM_PROVIDER!r}. Expected one of {settings.PROVIDERS}.")
+
+if settings.EMBEDDING_PROVIDER not in settings.EMBEDDING_PROVIDERS:
+    raise ValueError(
+        f"Invalid EMBEDDING_PROVIDER {settings.EMBEDDING_PROVIDER!r}. Groq has no embeddings API, "
+        f"so it can't be used here -- expected one of {settings.EMBEDDING_PROVIDERS}. "
+        f"(If LLM_PROVIDER=groq, set EMBEDDING_PROVIDER explicitly, e.g. to 'gemini'.)"
+    )
 
 if settings.CHUNKING_STRATEGY not in settings.CHUNKING_STRATEGIES:
     raise ValueError(

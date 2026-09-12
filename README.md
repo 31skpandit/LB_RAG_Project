@@ -116,6 +116,7 @@ All settings live in `config/settings.py` and are overridable via `.env` (see
 | Variable                    | Default        | Purpose                                              |
 |------------------------------|----------------|-------------------------------------------------------|
 | `LLM_PROVIDER`                 | `gemini`       | `openai`, `gemini`, `ollama`, `qwen`, or `groq` — see below |
+| `EMBEDDING_PROVIDER`           | matches `LLM_PROVIDER` | Same list minus `groq` (no embeddings API) — see below |
 | `OPENAI_API_KEY`              | (required for `openai`) | LLM/embedding calls                          |
 | `CHATGPT_MODEL`                | `gpt-4o`       | Chat model for summaries & answers                    |
 | `EMBEDDING_MODEL`              | `text-embedding-3-small` | Embedding model for the vector store        |
@@ -133,7 +134,6 @@ All settings live in `config/settings.py` and are overridable via `.env` (see
 | `GROQ_API_KEY`                 | (required for `groq`) | LLM/embedding calls, free tier, no country lock |
 | `GROQ_BASE_URL`                | `https://api.groq.com/openai/v1` | Groq's OpenAI-compatible API base URL   |
 | `GROQ_CHAT_MODEL`              | `qwen/qwen3.6-27b` | Chat model for summaries & answers (must support vision) |
-| `GROQ_EMBEDDING_MODEL`         | `nomic-embed-text-v1_5` | Embedding model for the vector store          |
 | `GROQ_MAX_TOKENS`              | `500`          | Caps output tokens per call (see rate limits below)   |
 | `CHUNKING_STRATEGY`            | `by_title`     | Text chunking strategy, see below                     |
 | `MAX_CHARACTERS`               | `4000`         | Max chars per chunk                                   |
@@ -142,22 +142,32 @@ All settings live in `config/settings.py` and are overridable via `.env` (see
 
 ### LLM provider toggle
 
-`config/llm_factory.py` builds the chat/vision model and the embedding model
-from a single `LLM_PROVIDER` setting. Every pipeline stage (summarization,
+`config/llm_factory.py` builds the chat/vision model from `LLM_PROVIDER` and
+the embedding model from `EMBEDDING_PROVIDER` (defaults to `LLM_PROVIDER`, so
+most setups only ever touch one setting). Every pipeline stage (summarization,
 image summarization, embeddings, answer synthesis) goes through this factory,
-so switching providers is a one-line `.env` change — no code edits needed.
+so switching providers is a one- or two-line `.env` change — no code edits.
 
-| `LLM_PROVIDER` | Chat + vision                 | Embeddings                    | API key needed? |
-|----------------|--------------------------------|--------------------------------|------------------|
-| `openai`       | `CHATGPT_MODEL` (`gpt-4o`)      | `EMBEDDING_MODEL`              | `OPENAI_API_KEY` |
-| `gemini`       | `GEMINI_CHAT_MODEL`             | `GEMINI_EMBEDDING_MODEL`       | `GOOGLE_API_KEY` (free tier) |
-| `ollama`       | `OLLAMA_CHAT_MODEL`             | `OLLAMA_EMBEDDING_MODEL`       | none (runs locally) |
-| `qwen`         | `QWEN_CHAT_MODEL`               | `QWEN_EMBEDDING_MODEL`         | `QWEN_API_KEY` (free tier) |
-| `groq`         | `GROQ_CHAT_MODEL`               | `GROQ_EMBEDDING_MODEL`         | `GROQ_API_KEY` (free tier) |
+| Provider | Chat + vision (`LLM_PROVIDER`) | Embeddings (`EMBEDDING_PROVIDER`) | API key needed? |
+|----------|--------------------------------|--------------------------------|------------------|
+| `openai` | `CHATGPT_MODEL` (`gpt-4o`)      | `EMBEDDING_MODEL`              | `OPENAI_API_KEY` |
+| `gemini` | `GEMINI_CHAT_MODEL`             | `GEMINI_EMBEDDING_MODEL`       | `GOOGLE_API_KEY` (free tier) |
+| `ollama` | `OLLAMA_CHAT_MODEL`             | `OLLAMA_EMBEDDING_MODEL`       | none (runs locally) |
+| `qwen`   | `QWEN_CHAT_MODEL`               | `QWEN_EMBEDDING_MODEL`         | `QWEN_API_KEY` (free tier) |
+| `groq`   | `GROQ_CHAT_MODEL`               | *(none — has no embeddings API)* | `GROQ_API_KEY` (free tier) |
+
+**`groq` is chat/vision-only.** Its embeddings support doesn't actually exist
+for at least some accounts — despite third-party docs/blogs claiming a
+`nomic-embed-text-v1_5` model, it 404s ("does not exist or you do not have
+access to it") and doesn't appear at all in the account's live
+`GET /openai/v1/models` response. So when `LLM_PROVIDER=groq`, you must set
+`EMBEDDING_PROVIDER` to a different provider (e.g. `gemini`) — startup raises
+a clear error if you leave it defaulting to `groq`.
 
 To use Groq: create a free key at
 [console.groq.com/keys](https://console.groq.com/keys) (no country
-restriction, unlike DashScope), set `GROQ_API_KEY` in `.env`, then set
+restriction, unlike DashScope), set `GROQ_API_KEY` and `EMBEDDING_PROVIDER`
+(e.g. `gemini`, with its own key configured) in `.env`, then set
 `LLM_PROVIDER=groq`. It's routed through Groq's OpenAI-compatible endpoint via
 `langchain-openai`, so no extra dependency is needed — same approach as `qwen`.
 
@@ -177,9 +187,6 @@ for your account's current limits):
   retire them with little notice. If `GROQ_CHAT_MODEL` ever 404s, check
   [console.groq.com/docs/vision](https://console.groq.com/docs/vision) for
   the current model ID.
-- Embeddings (`nomic-embed-text-v1_5`) don't have a clearly published separate
-  rate limit in Groq's docs as of this writing — check your account's limits
-  page if you hit throttling on that step.
 - If you exceed limits, requests get HTTP 429'd; the RAG pipeline doesn't
   currently retry/backoff automatically. `summarization/text_table_summarizer.py`
   defaults `max_concurrency=1` (serial calls) to stay well under the 30 RPM /

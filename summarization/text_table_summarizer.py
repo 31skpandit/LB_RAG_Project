@@ -28,7 +28,7 @@ def build_summarize_chain(llm: BaseChatModel = None):
 
 
 def summarize_texts_and_tables(
-    text_docs: List[str], table_docs: List[str], llm: BaseChatModel = None, max_concurrency: int = 5
+    text_docs: List[str], table_docs: List[str], llm: BaseChatModel = None, max_concurrency: int = 1
 ):
     """Return (text_summaries, table_summaries) generated via batched LLM calls."""
     summarize_chain = build_summarize_chain(llm)

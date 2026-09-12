@@ -14,9 +14,9 @@ class Settings:
     # LLM / embeddings
     # Toggle provider: swap the whole pipeline (chat + vision + embeddings) by
     # changing this one value. No code changes needed elsewhere.
-    # One of: openai, gemini, ollama, qwen
+    # One of: openai, gemini, ollama, qwen, groq
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "gemini")
-    PROVIDERS = ("openai", "gemini", "ollama", "qwen")
+    PROVIDERS = ("openai", "gemini", "ollama", "qwen", "groq")
 
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     CHATGPT_MODEL: str = os.getenv("CHATGPT_MODEL", "gpt-4o")
@@ -52,6 +52,24 @@ class Settings:
     QWEN_BASE_URL: str = os.getenv("QWEN_BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
     QWEN_CHAT_MODEL: str = os.getenv("QWEN_CHAT_MODEL", "qwen-vl-plus")
     QWEN_EMBEDDING_MODEL: str = os.getenv("QWEN_EMBEDDING_MODEL", "text-embedding-v3")
+
+    # Groq: extremely fast free-tier inference via its OpenAI-compatible endpoint.
+    # Get a free key at https://console.groq.com/keys (no country restriction).
+    # GROQ_CHAT_MODEL must be vision-capable since it's also used for image
+    # summaries -- Groq's vision models are currently Qwen-based and marked
+    # "preview" (can be deprecated/rotated without much notice); check
+    # https://console.groq.com/docs/vision if the default below stops working.
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    GROQ_BASE_URL: str = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+    GROQ_CHAT_MODEL: str = os.getenv("GROQ_CHAT_MODEL", "qwen/qwen3.6-27b")
+    GROQ_EMBEDDING_MODEL: str = os.getenv("GROQ_EMBEDDING_MODEL", "nomic-embed-text-v1_5")
+    # Groq's free tier enforces output-tokens-per-minute (OTPM), separate from
+    # (and tighter than) the general tokens-per-minute limit -- 1000 OTPM for
+    # qwen/qwen3.6-27b as of writing. Without an explicit cap, the client lets
+    # the model request as many output tokens as its max context allows, which
+    # trips a 429 immediately. 500 leaves headroom under 1000 for a 2nd request
+    # in the same minute; lower it further if you still see 429s.
+    GROQ_MAX_TOKENS: int = int(os.getenv("GROQ_MAX_TOKENS", "500"))
 
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0"))
 
@@ -112,6 +130,18 @@ class Settings:
         return cls.QWEN_API_KEY
 
     @classmethod
+    def ensure_groq_key(cls) -> str:
+        """Return the Groq key, prompting interactively if not set via env/.env."""
+        if not cls.GROQ_API_KEY:
+            from getpass import getpass
+
+            cls.GROQ_API_KEY = getpass("Enter Groq API Key: ")
+            os.environ["GROQ_API_KEY"] = cls.GROQ_API_KEY
+        else:
+            os.environ["GROQ_API_KEY"] = cls.GROQ_API_KEY
+        return cls.GROQ_API_KEY
+
+    @classmethod
     def ensure_llm_key(cls) -> str:
         """Ensure the API key for the configured LLM_PROVIDER is set, prompting if needed.
 
@@ -121,6 +151,8 @@ class Settings:
             return cls.ensure_google_key()
         if cls.LLM_PROVIDER == "qwen":
             return cls.ensure_qwen_key()
+        if cls.LLM_PROVIDER == "groq":
+            return cls.ensure_groq_key()
         if cls.LLM_PROVIDER == "ollama":
             return ""
         return cls.ensure_openai_key()

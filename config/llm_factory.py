@@ -1,4 +1,4 @@
-"""Builds chat/embedding models for the configured LLM_PROVIDER (openai, gemini, ollama, or qwen).
+"""Builds chat/embedding models for the configured LLM_PROVIDER (openai, gemini, ollama, qwen, or groq).
 
 Every module that needs an LLM or embedding model should go through these
 factories instead of instantiating a provider client directly, so switching
@@ -39,6 +39,15 @@ def get_chat_model(temperature: float = None) -> BaseChatModel:
             base_url=settings.QWEN_BASE_URL,
         )
 
+    if settings.LLM_PROVIDER == "groq":
+        return ChatOpenAI(
+            model=settings.GROQ_CHAT_MODEL,
+            temperature=temperature,
+            api_key=settings.GROQ_API_KEY,
+            base_url=settings.GROQ_BASE_URL,
+            max_tokens=settings.GROQ_MAX_TOKENS,
+        )
+
     return ChatOpenAI(model=settings.CHATGPT_MODEL, temperature=temperature)
 
 
@@ -61,6 +70,14 @@ def get_embedding_model() -> Embeddings:
             model=settings.QWEN_EMBEDDING_MODEL,
             api_key=settings.QWEN_API_KEY,
             base_url=settings.QWEN_BASE_URL,
+        )
+
+    if settings.LLM_PROVIDER == "groq":
+        return OpenAIEmbeddings(
+            model=settings.GROQ_EMBEDDING_MODEL,
+            api_key=settings.GROQ_API_KEY,
+            base_url=settings.GROQ_BASE_URL,
+            check_embedding_ctx_length=False,
         )
 
     return OpenAIEmbeddings(model=settings.EMBEDDING_MODEL)

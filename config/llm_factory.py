@@ -22,7 +22,12 @@ def get_chat_model(temperature: float = None) -> BaseChatModel:
     if settings.LLM_PROVIDER == "ollama":
         from langchain_ollama import ChatOllama
 
-        return ChatOllama(model=settings.OLLAMA_CHAT_MODEL, base_url=settings.OLLAMA_BASE_URL, temperature=temperature)
+        return ChatOllama(
+            model=settings.OLLAMA_CHAT_MODEL,
+            base_url=settings.OLLAMA_BASE_URL,
+            temperature=temperature,
+            num_ctx=settings.OLLAMA_NUM_CTX,
+        )
 
     from langchain_openai import ChatOpenAI
 

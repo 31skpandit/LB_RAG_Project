@@ -125,6 +125,7 @@ All settings live in `config/settings.py` and are overridable via `.env` (see
 | `OLLAMA_BASE_URL`              | `http://localhost:11434` | Local Ollama server URL                     |
 | `OLLAMA_CHAT_MODEL`            | `qwen3-vl:2b`  | Chat model for summaries & answers (must support vision) |
 | `OLLAMA_EMBEDDING_MODEL`       | `qwen3-embedding:0.6b` | Embedding model for the vector store       |
+| `OLLAMA_NUM_CTX`               | `8192`         | Context window passed to Ollama (see note below) |
 | `QWEN_API_KEY`                 | (required for `qwen`) | LLM/embedding calls, free tier via DashScope  |
 | `QWEN_BASE_URL`                | DashScope intl. compatible endpoint | Qwen/DashScope API base URL        |
 | `QWEN_CHAT_MODEL`              | `qwen-vl-plus` | Chat model for summaries & answers (must support vision) |
@@ -162,6 +163,14 @@ budget GPUs (e.g. 4GB VRAM); `:4b`/`:8b` need more VRAM but summarize with
 noticeably better quality. Check with `ollama ps` while a run is in progress —
 if `PROCESSOR` shows a CPU/GPU split instead of 100% GPU, the model doesn't
 fully fit in VRAM and inference will be much slower; drop to a smaller size.
+
+**Important**: Ollama defaults every model to a 4096-token context window
+regardless of what the model actually supports, and silently truncates the
+prompt from the front once it's exceeded -- which can drop the question itself
+and produce an empty or endlessly "thinking" response with no error at all.
+This pipeline's answer prompt combines several retrieved chunks/tables with
+the question, so `OLLAMA_NUM_CTX` (default `8192`) raises this explicitly. If
+you increase retrieval `k` or chunk sizes, raise it further.
 
 To use Qwen: create a free API key at
 [bailian.console.alibabacloud.com](https://bailian.console.alibabacloud.com/)

@@ -18,3 +18,8 @@ Things to remember while designing RAG projects :-
 
 Plan :-
 1. Make codebase such that its using both Ollama ; OpenAI and Gemini Free for LLM + Text Embedding model.
+2. Add observability
+3. Add RAGAS and other metrics
+4. Add various prompt techniques
+5. Learn re-ranking - all techniques and apply to see what and how results we get
+6. Set-up more chatbot kind of things 

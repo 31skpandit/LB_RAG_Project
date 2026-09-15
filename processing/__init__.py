@@ -11,6 +11,7 @@ from .chunking import (
     SUPPORTED_STRATEGIES,
     apply_custom_chunking,
 )
+from .citations import pack_content, unpack_content, format_citation
 
 __all__ = [
     "html_table_to_markdown",
@@ -23,4 +24,7 @@ __all__ = [
     "CUSTOM_STRATEGIES",
     "SUPPORTED_STRATEGIES",
     "apply_custom_chunking",
+    "pack_content",
+    "unpack_content",
+    "format_citation",
 ]

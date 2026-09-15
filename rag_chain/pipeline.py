@@ -29,7 +29,12 @@ def multimodal_prompt_function(data_dict):
 
 
 def build_multimodal_rag_chain(retriever, llm: BaseChatModel = None):
-    """Return a runnable that accepts {'input': question} and yields {..., 'context', 'answer'}."""
+    """Return a runnable that accepts {'input': question} and yields {..., 'context', 'answer', 'citations'}.
+
+    `citations` is assembled deterministically in code from retrieved-chunk
+    metadata (see processing.split_image_text_types / processing.citations) --
+    not left to the LLM to remember to include -- so it's always present.
+    """
     llm = llm or get_chat_model()
 
     multimodal_rag = (
@@ -41,7 +46,10 @@ def build_multimodal_rag_chain(retriever, llm: BaseChatModel = None):
 
     retrieve_docs = itemgetter("input") | retriever | RunnableLambda(split_image_text_types)
 
-    return RunnablePassthrough.assign(context=retrieve_docs).assign(answer=multimodal_rag)
+    return RunnablePassthrough.assign(context=retrieve_docs).assign(
+        answer=multimodal_rag,
+        citations=itemgetter("context") | RunnableLambda(lambda ctx: ctx.get("citations", [])),
+    )
 
 
 def multimodal_rag_qa(chain, query: str, display_output: bool = True):
@@ -60,6 +68,11 @@ def multimodal_rag_qa(chain, query: str, display_output: bool = True):
             display(Markdown(response["answer"]))
         else:
             print(response["answer"])
+
+        print("--" * 50)
+        print("Citations:")
+        for citation in response["citations"]:
+            print(f"- {citation}")
 
         print("--" * 50)
         print("Sources:")

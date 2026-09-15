@@ -1,5 +1,6 @@
 """Summarize images with a multimodal LLM (vision) for retrieval indexing."""
 import base64
+import glob
 import os
 from typing import List, Tuple
 
@@ -39,9 +40,13 @@ def summarize_image(img_base64: str, prompt: str = IMAGE_SUMMARY_PROMPT, llm: Ba
 
 
 def generate_img_summaries(figures_dir: str = None, llm: BaseChatModel = None) -> Tuple[List[str], List[str]]:
-    """Encode every .jpg in `figures_dir` and generate a retrieval-oriented summary for each.
+    """Encode every .jpg under `figures_dir` (recursively) and generate a retrieval-oriented summary for each.
 
-    Returns (base64_images, image_summaries), both in filename-sorted order.
+    Recursive so this also picks up the per-PDF subdirectories main.py creates
+    when indexing multiple PDFs (e.g. figures_dir/<pdf_stem>/*.jpg), not just
+    files directly inside figures_dir.
+
+    Returns (base64_images, image_summaries), both in path-sorted order.
     """
     figures_dir = figures_dir or settings.FIGURES_DIR
 
@@ -51,11 +56,9 @@ def generate_img_summaries(figures_dir: str = None, llm: BaseChatModel = None) -
     if not os.path.isdir(figures_dir):
         return img_base64_list, image_summaries
 
-    for img_file in sorted(os.listdir(figures_dir)):
-        if img_file.endswith(".jpg"):
-            img_path = os.path.join(figures_dir, img_file)
-            base64_image = encode_image(img_path)
-            img_base64_list.append(base64_image)
-            image_summaries.append(summarize_image(base64_image, llm=llm))
+    for img_path in sorted(glob.glob(os.path.join(figures_dir, "**", "*.jpg"), recursive=True)):
+        base64_image = encode_image(img_path)
+        img_base64_list.append(base64_image)
+        image_summaries.append(summarize_image(base64_image, llm=llm))
 
     return img_base64_list, image_summaries

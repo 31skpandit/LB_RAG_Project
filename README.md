@@ -12,12 +12,13 @@ RAG/
 ├── config/
 │   └── settings.py            # Central configuration (env vars, model names, paths)
 ├── data_ingestion/
-│   ├── downloader.py          # Fetch source documents (e.g. PDFs)
-│   └── pdf_loader.py          # Partition PDFs into text/table/image elements (Unstructured)
+│   ├── downloader.py          # Discover documents in data/, download-by-URL helper
+│   └── document_loader.py     # Partition any supported document into text/table/image elements (Unstructured)
 ├── processing/
-│   ├── element_splitter.py    # Categorize raw elements, split retrieved base64/text results
+│   ├── element_splitter.py    # Categorize raw elements, split retrieved results into images/texts/citations
 │   ├── chunking.py             # Custom chunking strategies (recursive/sentence/paragraph)
-│   └── table_converter.py     # HTML table -> Markdown conversion
+│   ├── table_converter.py     # HTML table -> Markdown conversion
+│   └── citations.py           # Pack/unpack source (filename + page) metadata for citations
 ├── summarization/
 │   ├── text_table_summarizer.py  # LLM summaries for text & table chunks
 │   └── image_summarizer.py       # LLM summaries for images (base64 + vision prompt)
@@ -28,12 +29,15 @@ RAG/
 ├── rag_chain/
 │   ├── prompts.py               # Prompt templates
 │   ├── utils.py                 # base64/image helpers
-│   └── pipeline.py              # End-to-end multimodal RAG chain + QA helper
+│   └── pipeline.py              # End-to-end multimodal RAG chain + QA helper (answer + citations)
+├── api/
+│   ├── schemas.py              # Pydantic request/response models
+│   └── main.py                 # FastAPI app (POST /query, GET /health) + Swagger UI
 ├── scripts/
 │   ├── install_system_deps.sh   # tesseract/poppler/redis system deps
 │   ├── download_nltk_data.py    # nltk punkt/POS tagger downloads
 │   └── run_pipeline.py          # CLI entry point to run ingestion + build retriever
-├── main.py                      # Orchestrates the full pipeline end-to-end
+├── main.py                      # Orchestrates the full pipeline end-to-end (CLI)
 ├── requirements.txt
 └── .env.example
 ```
@@ -44,16 +48,17 @@ RAG/
 |--------------------------------------------|--------------------------------------------------|
 | Install dependencies                       | `requirements.txt`, `scripts/install_system_deps.sh` |
 | NLTK downloads                             | `scripts/download_nltk_data.py`                  |
-| Download PDF                               | `data_ingestion/downloader.py`                   |
-| Partition PDF (tables/text/images)         | `data_ingestion/pdf_loader.py`                   |
+| Discover/download documents                | `data_ingestion/downloader.py`                   |
+| Partition documents (tables/text/images)   | `data_ingestion/document_loader.py`              |
 | Separate text vs table elements            | `processing/element_splitter.py`                 |
 | Text chunking strategy                     | `processing/chunking.py`                         |
 | HTML table -> Markdown                     | `processing/table_converter.py`                  |
 | Text & table summaries                     | `summarization/text_table_summarizer.py`         |
 | Image summaries                            | `summarization/image_summarizer.py`              |
 | Multi-vector retriever (Chroma + Redis)    | `retrieval/vector_store.py`, `retrieval/doc_store.py`, `retrieval/multi_vector_retriever.py` |
-| Split retrieved images/text                | `processing/element_splitter.py`                 |
+| Split retrieved images/text, build citations | `processing/element_splitter.py`, `processing/citations.py` |
 | Multimodal RAG chain + QA                  | `rag_chain/prompts.py`, `rag_chain/utils.py`, `rag_chain/pipeline.py` |
+| Interactive API                            | `api/main.py`, `api/schemas.py`                  |
 
 ## Quick start
 
@@ -64,19 +69,29 @@ pip install -r requirements.txt         # 1. Python deps
 bash scripts/install_system_deps.sh     # 2. tesseract, poppler, redis-server
 python scripts/download_nltk_data.py    # 3. NLTK punkt/POS tagger data
 cp .env.example .env                    # 4. set LLM_PROVIDER + its API key (see Configuration)
-python main.py --pdf-url https://sgp.fas.org/crs/misc/IF10244.pdf   # 5. run the pipeline
-python main.py --pdf-path ./data/IF10244.pdf # 5. run the pipeline as file already downloaded in data folder
+cp your-document.pdf data/              # 5. add whatever you want indexed (PDF/DOCX/PPTX/TXT/HTML/image)
+python main.py                          # 6. run the pipeline against everything in data/
 ```
 
-Step 4 must happen before step 5: `config/settings.py` loads `.env` on import, and
+Step 4 must happen before step 6: `config/settings.py` loads `.env` on import, and
 `main.py` reads the API key for the configured `LLM_PROVIDER` immediately. If it's
 missing (and the provider isn't `ollama`, which needs no key), the pipeline falls
 back to an interactive `getpass` prompt instead of failing outright. Each provider's
 model names already have working defaults in `.env.example` — see the LLM provider
 toggle table below for how to switch providers.
 
-Then ask questions interactively, or import `rag_chain.pipeline.multimodal_rag_qa`
-in a notebook/script for exploration.
+**The pipeline only ever runs on documents you place in `data/`** — it auto-discovers
+every supported file there (PDF, DOCX, PPTX, TXT, HTML, or a standalone image) and
+indexes all of them into one combined knowledge base. If `data/` has nothing
+supported in it, `main.py` fails immediately with a clear message rather than
+silently downloading anything. To index just one specific file instead (any
+format), use `--pdf-path ./path/to/file.docx`; to download-then-index from a URL,
+use `--pdf-url https://...` (the flag names are historical, they accept any
+supported format now).
+
+Then ask questions interactively, import `rag_chain.pipeline.multimodal_rag_qa`
+in a notebook/script for exploration, or run the [FastAPI service](#interactive-api-fastapi--swagger)
+for a browser-based Q&A experience with citations.
 
 ### Running on Windows
 
@@ -230,8 +245,8 @@ must support vision (`qwen-vl-plus` by default).
 
 ### Chunking strategies
 
-`CHUNKING_STRATEGY` toggles how PDF text is chunked, so you can experiment with
-how the pipeline behaves under different chunking scenarios without touching code:
+`CHUNKING_STRATEGY` toggles how document text is chunked, so you can experiment
+with how the pipeline behaves under different chunking scenarios without touching code:
 
 | Value        | Behavior                                                              |
 |--------------|------------------------------------------------------------------------|
@@ -241,10 +256,83 @@ how the pipeline behaves under different chunking scenarios without touching cod
 | `sentence`   | Groups whole sentences (NLTK) up to `MAX_CHARACTERS`                   |
 | `paragraph`  | Groups whole paragraphs up to `MAX_CHARACTERS`                        |
 
-`by_title`/`basic` are applied natively during PDF partitioning; the other three
-are implemented in `processing/chunking.py` and applied afterwards on the raw
-unchunked elements. Set it in `.env`, e.g. `CHUNKING_STRATEGY=sentence`, then
-rerun `python main.py ...` to compare results.
+`by_title`/`basic` are applied natively during partitioning (confirmed generic
+across every supported format, not just PDF -- one shared chunking
+implementation in Unstructured); the other three are implemented in
+`processing/chunking.py` and applied afterwards on the raw unchunked elements.
+Set it in `.env`, e.g. `CHUNKING_STRATEGY=sentence`, then rerun `python main.py`
+to compare results.
+
+## Multi-format ingestion
+
+`data_ingestion/document_loader.py` uses Unstructured's auto-detecting
+`partition()` (via LangChain's generic `UnstructuredFileLoader`, dispatching by
+file extension) instead of a PDF-specific loader, so `data/` can hold any mix
+of: **PDF, DOCX, PPTX, TXT, HTML, or standalone images**. Every discovered file
+is partitioned into its own `figures_dir/<filename>/` subdirectory (preventing
+image-filename collisions between files) and all of their text/table elements
+are combined into one knowledge base.
+
+**Known limitation**: only PDFs (and standalone image files) contribute
+*extracted* images to the multimodal/vision index. Unstructured has no
+equivalent image-extraction mechanism for DOCX (needs custom Python-level
+picture-partitioner registration), PPTX (no output-directory hook), or
+HTML/TXT (no image concept at all) -- confirmed by reading Unstructured's own
+source, not assumed. DOCX/PPTX/TXT/HTML documents still contribute text and
+tables normally; they just won't produce chart/figure images for the vision
+summarization step.
+
+Table-structure inference and page-number metadata reliability also vary by
+format: page numbers are solid for PDF/PPTX, best-effort for DOCX (only set
+when the source file has explicit hard page-breaks), and never set for
+TXT/HTML -- this is why citations (below) sometimes show just a filename with
+no page number.
+
+## Citations
+
+Every answer includes a **citations list assembled deterministically in code**
+from retrieved-chunk metadata (`processing/citations.py`,
+`processing/element_splitter.py`) -- not left to the LLM to remember to cite,
+since the free-tier models this project has been tested against aren't
+reliable enough for that. Each retrieved text/table chunk is stored with its
+source filename + page number (when available) and shown to the model
+prefixed with a `[Source: filename, p.N]` tag, so it can reference sources
+naturally in its answer -- but the guaranteed `citations` field on the chain's
+output (and the CLI's "Citations:" section, and the API's `citations` response
+field) comes from the tracked metadata directly, independent of whether the
+model actually mentioned it.
+
+## Interactive API (FastAPI + Swagger)
+
+For a browser-based Q&A experience instead of the CLI, run:
+
+```bash
+uvicorn api.main:app --host 0.0.0.0 --port 8000
+```
+
+Then open **http://127.0.0.1:8000/docs** for the interactive Swagger UI. It
+builds the RAG pipeline once at startup (indexing is a one-time cost, not
+per-request) against whatever's in `data/`, then exposes:
+
+- `POST /query` — `{"question": "..."}` → `{"answer": "...", "citations": [...]}`. Use Swagger's "Try it out" button to ask questions directly in the browser.
+- `GET /health` — `{"status": "ok"|"starting", "documents_indexed": N}`.
+
+Since startup runs the full ingestion pipeline, the first request may need to
+wait a bit after launching `uvicorn` (watch the terminal log, or poll `/health`
+until `status` is `"ok"`) — how long depends on your `LLM_PROVIDER`/how many
+documents are in `data/`.
+
+**Don't add `--reload` when running under WSL from a Windows-mounted drive**
+(e.g. `/mnt/d/...`, which this project's path is). `--reload`'s file-watcher
+recursively scans the whole project directory -- including `.venv`'s tens of
+thousands of dependency files -- on every check, and over WSL's slower
+9p-mounted-NTFS filesystem access to a Windows drive this can peg CPU/IO badly
+enough that the server prints "Application startup complete" but doesn't
+actually respond to requests (curl/browser hangs or gets connection-refused,
+even though `ps`/`ss` show the process alive and listening). Only use
+`--reload` if you're actively editing `api/`'s code and want auto-restart on
+save, and even then scope it with `--reload-dir api` rather than watching the
+whole project.
 
 ## Why modular?
 

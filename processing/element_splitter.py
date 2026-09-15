@@ -11,6 +11,8 @@ from typing import Dict, List, Tuple
 
 from langchain_core.documents import Document
 
+from .citations import format_citation, unpack_content
+
 
 def split_elements_by_category(data: List[Document]) -> Tuple[List[Document], List[Document]]:
     """Separate loaded elements into (text docs, table docs)."""
@@ -44,17 +46,40 @@ def is_image_data(b64data: str) -> bool:
         return False
 
 
-def split_image_text_types(docs: List) -> Dict[str, List[str]]:
-    """Split a list of retrieved raw docstore values into base64 images vs text/tables."""
+def split_image_text_types(docs: List) -> Dict[str, List]:
+    """Split a list of retrieved raw docstore values into images, texts, and citations.
+
+    Text/table entries are packed with source metadata at ingestion time (see
+    processing.citations.pack_content, used in main.py); this unpacks them,
+    prefixes each text chunk with its "[Source: ...]" tag inline (so the LLM
+    can see and reference it), and separately assembles a deduplicated
+    citations list for a guaranteed, code-generated citations section --
+    not dependent on the model remembering to cite. Images remain bare
+    base64 (never packed at ingestion, so no citation available for them yet).
+    """
     b64_images = []
     texts = []
+    citations = []
+    seen_citations = set()
+
     for doc in docs:
         if isinstance(doc, Document):
             content = doc.page_content.decode("utf-8")
         else:
             content = doc.decode("utf-8")
+
         if looks_like_base64(content) and is_image_data(content):
             b64_images.append(content)
+            continue
+
+        text, source, page = unpack_content(content)
+        if source:
+            citation = format_citation(source, page)
+            texts.append(f"[Source: {citation}]\n{text}")
+            if citation not in seen_citations:
+                seen_citations.add(citation)
+                citations.append(citation)
         else:
-            texts.append(content)
-    return {"images": b64_images, "texts": texts}
+            texts.append(text)
+
+    return {"images": b64_images, "texts": texts, "citations": citations}

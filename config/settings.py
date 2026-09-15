@@ -89,11 +89,31 @@ class Settings:
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0"))
 
     # Data sources
+    # When no --pdf-path/--pdf-url is given, main.py auto-discovers and
+    # processes every supported document (PDF/DOCX/PPTX/TXT/HTML/image)
+    # directly inside DATA_DIR (see data_ingestion.discover_documents) --
+    # the pipeline only ever runs on documents actually placed there; an
+    # empty DATA_DIR is a hard error, not a silent download. PDF_URL/PDF_PATH
+    # are only used for the explicit --pdf-url override (data_ingestion.download_pdf).
+    DATA_DIR: str = os.getenv("DATA_DIR", "./data")
     PDF_URL: str = os.getenv("PDF_URL", "https://sgp.fas.org/crs/misc/IF10244.pdf")
     PDF_PATH: str = os.getenv("PDF_PATH", "./data/IF10244.pdf")
     FIGURES_DIR: str = os.getenv("FIGURES_DIR", "./data/figures")
 
     # Unstructured partitioning
+    # "hi_res" runs a deep-learning layout/OCR model over a rendered image of
+    # every page -- accurate for scanned/complex-layout PDFs, but commonly
+    # 1-3+ seconds PER PAGE on CPU (no GPU here), so it doesn't scale to
+    # real, many-page, digitally-native documents (confirmed: 126 pages was
+    # the actual bottleneck, not a bug). "fast" reads the PDF's own text layer
+    # directly, skipping the layout model entirely -- typically 10-50x faster
+    # for documents that aren't scanned images. Table-structure quality can be
+    # lower with "fast" (processing/table_converter.py already falls back
+    # gracefully if text_as_html is missing). Switch back to "hi_res" if you
+    # need scanned-document support or notice table extraction quality drop.
+    UNSTRUCTURED_STRATEGIES = ("fast", "hi_res", "ocr_only", "auto")
+    UNSTRUCTURED_STRATEGY: str = os.getenv("UNSTRUCTURED_STRATEGY", "fast")
+
     # Toggle to compare chunking behavior: "by_title"/"basic" run natively inside
     # Unstructured; "recursive"/"sentence"/"paragraph" are applied afterwards
     # by processing/chunking.py. See CHUNKING_STRATEGIES for all valid values.
@@ -189,6 +209,12 @@ if settings.CHUNKING_STRATEGY not in settings.CHUNKING_STRATEGIES:
     raise ValueError(
         f"Invalid CHUNKING_STRATEGY {settings.CHUNKING_STRATEGY!r}. "
         f"Expected one of {settings.CHUNKING_STRATEGIES}."
+    )
+
+if settings.UNSTRUCTURED_STRATEGY not in settings.UNSTRUCTURED_STRATEGIES:
+    raise ValueError(
+        f"Invalid UNSTRUCTURED_STRATEGY {settings.UNSTRUCTURED_STRATEGY!r}. "
+        f"Expected one of {settings.UNSTRUCTURED_STRATEGIES}."
     )
 
 

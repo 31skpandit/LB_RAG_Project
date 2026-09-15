@@ -1,10 +1,11 @@
 """Builds chat/embedding models for the configured providers.
 
-get_chat_model() uses LLM_PROVIDER (openai, gemini, ollama, qwen, or groq).
-get_embedding_model() uses EMBEDDING_PROVIDER (same list minus groq, which has
-no embeddings API) -- it defaults to LLM_PROVIDER, so setting only
-LLM_PROVIDER is enough unless you're using groq, which needs EMBEDDING_PROVIDER
-set to something else (e.g. gemini) for embeddings.
+get_chat_model() uses LLM_PROVIDER (openai, gemini, ollama, qwen, groq, or
+deepseek). get_embedding_model() uses EMBEDDING_PROVIDER (same list minus
+groq/deepseek, neither of which has an embeddings API) -- it defaults to
+LLM_PROVIDER, so setting only LLM_PROVIDER is enough unless you're using groq
+or deepseek, which need EMBEDDING_PROVIDER set to something else (e.g. gemini)
+for embeddings.
 
 Every module that needs an LLM or embedding model should go through these
 factories instead of instantiating a provider client directly, so switching
@@ -52,6 +53,14 @@ def get_chat_model(temperature: float = None) -> BaseChatModel:
             api_key=settings.GROQ_API_KEY,
             base_url=settings.GROQ_BASE_URL,
             max_tokens=settings.GROQ_MAX_TOKENS,
+        )
+
+    if settings.LLM_PROVIDER == "deepseek":
+        return ChatOpenAI(
+            model=settings.DEEPSEEK_CHAT_MODEL,
+            temperature=temperature,
+            api_key=settings.DEEPSEEK_API_KEY,
+            base_url=settings.DEEPSEEK_BASE_URL,
         )
 
     return ChatOpenAI(model=settings.CHATGPT_MODEL, temperature=temperature)

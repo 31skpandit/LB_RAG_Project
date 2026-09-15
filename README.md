@@ -130,8 +130,8 @@ All settings live in `config/settings.py` and are overridable via `.env` (see
 
 | Variable                    | Default        | Purpose                                              |
 |------------------------------|----------------|-------------------------------------------------------|
-| `LLM_PROVIDER`                 | `gemini`       | `openai`, `gemini`, `ollama`, `qwen`, or `groq` — see below |
-| `EMBEDDING_PROVIDER`           | matches `LLM_PROVIDER` | Same list minus `groq` (no embeddings API) — see below |
+| `LLM_PROVIDER`                 | `gemini`       | `openai`, `gemini`, `ollama`, `qwen`, `groq`, or `deepseek` — see below |
+| `EMBEDDING_PROVIDER`           | matches `LLM_PROVIDER` | Same list minus `groq`/`deepseek` (no embeddings API) — see below |
 | `OPENAI_API_KEY`              | (required for `openai`) | LLM/embedding calls                          |
 | `CHATGPT_MODEL`                | `gpt-4o`       | Chat model for summaries & answers                    |
 | `EMBEDDING_MODEL`              | `text-embedding-3-small` | Embedding model for the vector store        |
@@ -150,6 +150,9 @@ All settings live in `config/settings.py` and are overridable via `.env` (see
 | `GROQ_BASE_URL`                | `https://api.groq.com/openai/v1` | Groq's OpenAI-compatible API base URL   |
 | `GROQ_CHAT_MODEL`              | `qwen/qwen3.6-27b` | Chat model for summaries & answers (must support vision) |
 | `GROQ_MAX_TOKENS`              | `500`          | Caps output tokens per call (see rate limits below)   |
+| `DEEPSEEK_API_KEY`             | (required for `deepseek`) | LLM calls, pay-as-you-go, no free tier    |
+| `DEEPSEEK_BASE_URL`            | `https://api.deepseek.com` | DeepSeek's OpenAI-compatible API base URL |
+| `DEEPSEEK_CHAT_MODEL`          | `deepseek-flash` | Chat model for summaries & answers (must support vision) |
 | `CHUNKING_STRATEGY`            | `by_title`     | Text chunking strategy, see below                     |
 | `MAX_CHARACTERS`               | `4000`         | Max chars per chunk                                   |
 | `NEW_AFTER_N_CHARS`            | `4000`         | Soft chunk-size target                                |
@@ -170,14 +173,16 @@ so switching providers is a one- or two-line `.env` change — no code edits.
 | `ollama` | `OLLAMA_CHAT_MODEL`             | `OLLAMA_EMBEDDING_MODEL`       | none (runs locally) |
 | `qwen`   | `QWEN_CHAT_MODEL`               | `QWEN_EMBEDDING_MODEL`         | `QWEN_API_KEY` (free tier) |
 | `groq`   | `GROQ_CHAT_MODEL`               | *(none — has no embeddings API)* | `GROQ_API_KEY` (free tier) |
+| `deepseek` | `DEEPSEEK_CHAT_MODEL`         | *(none — has no embeddings API)* | `DEEPSEEK_API_KEY` (pay-as-you-go) |
 
-**`groq` is chat/vision-only.** Its embeddings support doesn't actually exist
-for at least some accounts — despite third-party docs/blogs claiming a
-`nomic-embed-text-v1_5` model, it 404s ("does not exist or you do not have
-access to it") and doesn't appear at all in the account's live
-`GET /openai/v1/models` response. So when `LLM_PROVIDER=groq`, you must set
-`EMBEDDING_PROVIDER` to a different provider (e.g. `gemini`) — startup raises
-a clear error if you leave it defaulting to `groq`.
+**`groq` and `deepseek` are chat/vision-only** — neither has an embeddings API.
+For Groq, this doesn't actually exist for at least some accounts — despite
+third-party docs/blogs claiming a `nomic-embed-text-v1_5` model, it 404s
+("does not exist or you do not have access to it") and doesn't appear at all
+in the account's live `GET /openai/v1/models` response. For DeepSeek, its
+hosted API has only ever exposed chat completions. So when `LLM_PROVIDER` is
+either of these, you must set `EMBEDDING_PROVIDER` to a different provider
+(e.g. `gemini`) — startup raises a clear error if you leave it defaulting to one of them.
 
 To use Groq: create a free key at
 [console.groq.com/keys](https://console.groq.com/keys) (no country
@@ -212,6 +217,26 @@ for your account's current limits):
   the model can exhaust its budget mid-reasoning and return an empty response
   instead of a 429 — if you see that, raise `GROQ_MAX_TOKENS` a bit rather than
   assuming the pipeline is broken.
+
+To use DeepSeek (API): create a key at
+[platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys)
+(pay-as-you-go, no free tier), set `DEEPSEEK_API_KEY` and `EMBEDDING_PROVIDER`
+(e.g. `gemini`) in `.env`, then set `LLM_PROVIDER=deepseek`. Routed through
+DeepSeek's OpenAI-compatible endpoint via `langchain-openai`, so no extra
+dependency needed. `deepseek-flash` (default) supports vision, needed for
+image summaries; `deepseek-v4-pro` is higher quality but text-only. Rate
+limiting is dynamic/concurrency-based rather than a harsh fixed RPM like
+Groq/Gemini's free tiers, so this shouldn't need a `GROQ_MAX_TOKENS`-style cap.
+
+To use DeepSeek (local, via Ollama): needs **no code changes at all** — it's
+just a model name under the existing `ollama` provider. Run
+`ollama pull deepseek-r1:1.5b` (fits ~4GB VRAM laptop GPUs; bump to `:7b`/
+`:8b`/`:14b` on stronger hardware) and set `OLLAMA_CHAT_MODEL=deepseek-r1:1.5b`
+with `LLM_PROVIDER=ollama`. **`deepseek-r1` is text-only** — no vision variant
+exists on Ollama at all — so it will fail if it ever needs to summarize an
+actual image. Safe as long as `UNSTRUCTURED_STRATEGY=fast` (extracts no
+images anyway); use `qwen3-vl`/`llava` as `OLLAMA_CHAT_MODEL` instead if you
+switch to `hi_res` and need working image summaries.
 
 To use Ollama: install it from [ollama.com](https://ollama.com), run
 `ollama pull qwen3-vl:2b && ollama pull qwen3-embedding:0.6b` (or whichever

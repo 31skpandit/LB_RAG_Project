@@ -14,20 +14,26 @@ class Settings:
     # LLM / embeddings
     # Toggle provider: swap the whole pipeline (chat + vision + embeddings) by
     # changing this one value. No code changes needed elsewhere.
-    # One of: openai, gemini, ollama, qwen, groq
+    # One of: openai, gemini, ollama, qwen, groq, deepseek
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "gemini")
-    PROVIDERS = ("openai", "gemini", "ollama", "qwen", "groq")
+    PROVIDERS = ("openai", "gemini", "ollama", "qwen", "groq", "deepseek")
 
-    # Groq has no embeddings API for this account (confirmed via its live
-    # /models list -- despite some third-party docs/blogs claiming otherwise),
-    # so it can't build an embedding model. EMBEDDING_PROVIDER selects the
-    # embedding-model provider independently of LLM_PROVIDER, defaulting to
-    # match it so nothing changes for single-provider setups (openai/gemini/
-    # ollama/qwen all support both). Override it when LLM_PROVIDER=groq --
-    # e.g. EMBEDDING_PROVIDER=gemini -- to mix a fast Groq chat model with
+    # Providers with no embeddings API at all: Groq (confirmed live via its
+    # /models list, despite some third-party docs/blogs claiming otherwise)
+    # and DeepSeek (its hosted API only ever exposed chat completions, no
+    # embeddings endpoint). EMBEDDING_PROVIDER selects the embedding-model
+    # provider independently of LLM_PROVIDER, defaulting to match it so
+    # nothing changes for single-provider setups (openai/gemini/ollama/qwen
+    # all support both). Override it when LLM_PROVIDER=groq or deepseek --
+    # e.g. EMBEDDING_PROVIDER=gemini -- to mix a chat-only provider with
     # another provider's embeddings.
+    NO_EMBEDDINGS_PROVIDERS = ("groq", "deepseek")
     EMBEDDING_PROVIDER: str = os.getenv("EMBEDDING_PROVIDER", LLM_PROVIDER)
-    EMBEDDING_PROVIDERS = tuple(p for p in PROVIDERS if p != "groq")
+    # NOTE: can't reference NO_EMBEDDINGS_PROVIDERS by name inside this
+    # comprehension -- comprehensions in a class body run in their own nested
+    # scope that can only see the outermost iterable (PROVIDERS here), not
+    # other class-body names, so the tuple is inlined literally instead.
+    EMBEDDING_PROVIDERS = tuple(p for p in PROVIDERS if p not in ("groq", "deepseek"))
 
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     CHATGPT_MODEL: str = os.getenv("CHATGPT_MODEL", "gpt-4o")
@@ -43,6 +49,14 @@ class Settings:
     # chat+vision (small enough to fit in ~4GB of VRAM on modest/laptop GPUs --
     # bump to qwen3-vl:4b/8b on stronger hardware for better summary quality),
     # qwen3-embedding:0.6b for embeddings (`ollama pull` both first).
+    # To run DeepSeek locally instead: this needs NO code changes, just
+    # `ollama pull deepseek-r1:1.5b` (fits ~4GB VRAM; bump to :7b/:8b/:14b on
+    # stronger hardware) and set OLLAMA_CHAT_MODEL=deepseek-r1:1.5b below --
+    # BUT deepseek-r1 is text-only (confirmed: no vision variant exists on
+    # Ollama), so it will fail if it ever needs to summarize an actual image.
+    # Safe with UNSTRUCTURED_STRATEGY=fast (extracts no images anyway); keep
+    # qwen3-vl or llava as OLLAMA_CHAT_MODEL if you switch to hi_res and need
+    # working image summaries.
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     OLLAMA_CHAT_MODEL: str = os.getenv("OLLAMA_CHAT_MODEL", "qwen3-vl:2b")
     OLLAMA_EMBEDDING_MODEL: str = os.getenv("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:0.6b")
@@ -85,6 +99,19 @@ class Settings:
     # trips a 429 immediately. 500 leaves headroom under 1000 for a 2nd request
     # in the same minute; lower it further if you still see 429s.
     GROQ_MAX_TOKENS: int = int(os.getenv("GROQ_MAX_TOKENS", "500"))
+
+    # DeepSeek's official API, OpenAI-compatible. Get a key at
+    # https://platform.deepseek.com/api_keys (pay-as-you-go, no free tier, but
+    # rate limiting is dynamic/concurrency-based rather than a harsh fixed RPM
+    # like Groq/Gemini's free tiers -- shouldn't need GROQ_MAX_TOKENS-style
+    # workarounds). DEEPSEEK_CHAT_MODEL must be vision-capable since it's also
+    # used for image summaries -- "deepseek-flash" supports image input;
+    # "deepseek-v4-pro" (higher quality, no vision, pricier) is the
+    # alternative if you don't need image summarization.
+    # No embeddings endpoint (same gap as Groq) -- see EMBEDDING_PROVIDER above.
+    DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
+    DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    DEEPSEEK_CHAT_MODEL: str = os.getenv("DEEPSEEK_CHAT_MODEL", "deepseek-flash")
 
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0"))
 
@@ -177,6 +204,18 @@ class Settings:
         return cls.GROQ_API_KEY
 
     @classmethod
+    def ensure_deepseek_key(cls) -> str:
+        """Return the DeepSeek key, prompting interactively if not set via env/.env."""
+        if not cls.DEEPSEEK_API_KEY:
+            from getpass import getpass
+
+            cls.DEEPSEEK_API_KEY = getpass("Enter DeepSeek API Key: ")
+            os.environ["DEEPSEEK_API_KEY"] = cls.DEEPSEEK_API_KEY
+        else:
+            os.environ["DEEPSEEK_API_KEY"] = cls.DEEPSEEK_API_KEY
+        return cls.DEEPSEEK_API_KEY
+
+    @classmethod
     def ensure_llm_key(cls) -> str:
         """Ensure the API key for the configured LLM_PROVIDER is set, prompting if needed.
 
@@ -188,6 +227,8 @@ class Settings:
             return cls.ensure_qwen_key()
         if cls.LLM_PROVIDER == "groq":
             return cls.ensure_groq_key()
+        if cls.LLM_PROVIDER == "deepseek":
+            return cls.ensure_deepseek_key()
         if cls.LLM_PROVIDER == "ollama":
             return ""
         return cls.ensure_openai_key()
@@ -200,9 +241,10 @@ if settings.LLM_PROVIDER not in settings.PROVIDERS:
 
 if settings.EMBEDDING_PROVIDER not in settings.EMBEDDING_PROVIDERS:
     raise ValueError(
-        f"Invalid EMBEDDING_PROVIDER {settings.EMBEDDING_PROVIDER!r}. Groq has no embeddings API, "
-        f"so it can't be used here -- expected one of {settings.EMBEDDING_PROVIDERS}. "
-        f"(If LLM_PROVIDER=groq, set EMBEDDING_PROVIDER explicitly, e.g. to 'gemini'.)"
+        f"Invalid EMBEDDING_PROVIDER {settings.EMBEDDING_PROVIDER!r}. "
+        f"{settings.NO_EMBEDDINGS_PROVIDERS} have no embeddings API, so they can't be used here -- "
+        f"expected one of {settings.EMBEDDING_PROVIDERS}. "
+        f"(If LLM_PROVIDER is one of those, set EMBEDDING_PROVIDER explicitly, e.g. to 'gemini'.)"
     )
 
 if settings.CHUNKING_STRATEGY not in settings.CHUNKING_STRATEGIES:

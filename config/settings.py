@@ -185,6 +185,15 @@ class Settings:
     # Retrieval backends
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
     CHROMA_COLLECTION_NAME: str = os.getenv("CHROMA_COLLECTION_NAME", "mm_rag")
+    # Without this, Chroma defaults to an in-memory-only client -- the entire
+    # vector index is wiped on every process exit, forcing a full
+    # re-embed-everything pass (real API cost) on every restart, even though
+    # Redis (the raw-content docstore) and the summary cache both already
+    # persist. This is the actual fix for "why does it re-embed every time I
+    # restart uvicorn" -- see retrieval/multi_vector_retriever.py for the
+    # matching skip-if-already-embedded logic, which needs this to have
+    # anything to check against.
+    CHROMA_PERSIST_DIR: str = os.getenv("CHROMA_PERSIST_DIR", "./data/chroma_db")
     RETRIEVER_ID_KEY: str = "doc_id"
 
     @classmethod

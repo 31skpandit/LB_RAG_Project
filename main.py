@@ -6,6 +6,8 @@ Usage:
     python main.py --pdf-path ./data/IF10244.pdf --query "Summarize the wildfire trend"
 """
 import argparse
+import base64
+import glob
 import os
 import sys
 
@@ -13,7 +15,7 @@ from config import settings
 from data_ingestion import discover_documents, download_pdf, partition_document
 from processing import convert_tables_to_markdown, pack_content, split_elements_by_category
 from rag_chain import build_multimodal_rag_chain, multimodal_rag_qa
-from retrieval import create_multi_vector_retriever, get_doc_store, get_vector_store
+from retrieval import content_id, create_multi_vector_retriever, get_doc_store, get_vector_store, index_manifest
 from summarization import generate_img_summaries, summarize_texts_and_tables
 
 
@@ -41,15 +43,77 @@ def _resolve_document_paths(pdf_path: str = None, pdf_url: str = None, data_dir:
     return discovered
 
 
+def _prune_deleted_documents(current_paths: list, docstore, vectorstore) -> None:
+    """Delete vectorstore/docstore entries for any previously-indexed file
+    that's no longer among the currently discovered documents (e.g. removed
+    from data/) -- without this, deleted files' chunks/embeddings stay in
+    Chroma/Redis forever.
+    """
+    current_set = {os.path.abspath(p) for p in current_paths}
+    removed = 0
+    for tracked_path in index_manifest.all_manifest_file_paths():
+        if os.path.abspath(tracked_path) not in current_set:
+            stale_ids = index_manifest.forget_file(tracked_path)
+            if stale_ids:
+                vectorstore.delete(ids=stale_ids)
+                docstore.mdelete(stale_ids)
+            removed += 1
+            print(f"Pruned deleted document from the index: {tracked_path}")
+    if removed:
+        print(f"Pruned {removed} deleted document(s) total.")
+
+
+def _record_indexed_files(per_file_docs: dict) -> None:
+    """After a successful build, record each processed file's resulting
+    chunk/image IDs -- this is what lets future runs skip unchanged files
+    and correctly prune deleted/changed ones (see retrieval/index_manifest.py).
+    """
+    for path, info in per_file_docs.items():
+        ids = [content_id(pack_content(d)) for d in info["texts"]]
+        ids += [content_id(pack_content(t)) for t in info["tables"]]
+        for img_path in sorted(glob.glob(os.path.join(info["figures_dir"], "**", "*.jpg"), recursive=True)):
+            with open(img_path, "rb") as f:
+                ids.append(content_id(base64.b64encode(f.read()).decode("utf-8")))
+        index_manifest.record_indexed(path, ids)
+
+
 def build_pipeline(pdf_path: str = None, pdf_url: str = None, figures_dir: str = None, data_dir: str = None):
     """Run ingestion, summarization, and indexing. Returns a ready-to-query RAG chain."""
     settings.ensure_llm_key()
 
     figures_dir = figures_dir or settings.FIGURES_DIR
+    # Pruning deleted files only makes sense when doc_paths represents "every
+    # document currently in data/" -- an explicit --pdf-path/--pdf-url is a
+    # narrower, single-file view and shouldn't be treated as "everything else
+    # was deleted."
+    is_auto_mode = pdf_path is None and pdf_url is None
     doc_paths = _resolve_document_paths(pdf_path, pdf_url, data_dir)
 
-    text_docs, table_docs = [], []
-    for path in doc_paths:
+    vectorstore = get_vector_store()
+    docstore = get_doc_store()
+
+    if is_auto_mode:
+        _prune_deleted_documents(doc_paths, docstore, vectorstore)
+
+    # Skip unchanged files entirely (not for API cost -- that's already
+    # handled by the per-chunk caches -- but for the wall-clock time of
+    # re-parsing a document via Unstructured on every run for nothing).
+    to_process = [p for p in doc_paths if not index_manifest.is_already_indexed(p)]
+    skipped = len(doc_paths) - len(to_process)
+    if skipped:
+        print(f"Skipping {skipped} unchanged document(s) already indexed (nothing to re-partition).")
+
+    # A file that changed since it was last indexed still needs its OLD
+    # chunk IDs cleaned up first -- otherwise, if the new content produces
+    # fewer chunks than before, the extra old ones become orphaned garbage.
+    for path in to_process:
+        stale_ids = index_manifest.forget_file(path)
+        if stale_ids:
+            vectorstore.delete(ids=stale_ids)
+            docstore.mdelete(stale_ids)
+
+    per_file_docs = {}
+    for path in to_process:
         # Separate figures subdirectory per document so extracted image
         # filenames (e.g. "figure-1-1.jpg", named by Unstructured's internal
         # index) can't collide across different documents sharing one
@@ -59,11 +123,13 @@ def build_pipeline(pdf_path: str = None, pdf_url: str = None, figures_dir: str =
         print(f"Partitioning document: {path}")
         elements = partition_document(path, doc_figures_dir)
         texts, tables = split_elements_by_category(elements)
-        text_docs.extend(texts)
-        table_docs.extend(tables)
+        per_file_docs[path] = {"texts": texts, "tables": tables, "figures_dir": doc_figures_dir}
+
+    text_docs = [d for info in per_file_docs.values() for d in info["texts"]]
+    table_docs = [t for info in per_file_docs.values() for t in info["tables"]]
 
     convert_tables_to_markdown(table_docs)
-    print(f"Extracted {len(text_docs)} text chunks and {len(table_docs)} tables from {len(doc_paths)} document(s).")
+    print(f"Extracted {len(text_docs)} text chunks and {len(table_docs)} tables from {len(to_process)} document(s).")
 
     # Plain content for summarization (the LLM doesn't need the citation wrapper).
     text_contents = [d.page_content for d in text_docs]
@@ -83,8 +149,6 @@ def build_pipeline(pdf_path: str = None, pdf_url: str = None, figures_dir: str =
     print(f"Summarized {len(imgs_base64)} images.")
 
     print("Building multi-vector retriever (Chroma + Redis)...")
-    vectorstore = get_vector_store()
-    docstore = get_doc_store()
     retriever = create_multi_vector_retriever(
         docstore,
         vectorstore,
@@ -95,6 +159,11 @@ def build_pipeline(pdf_path: str = None, pdf_url: str = None, figures_dir: str =
         image_summaries,
         imgs_base64,
     )
+
+    # Only reached once summarization/embedding above actually succeeded, so
+    # a run that errors out partway through won't wrongly mark a file done.
+    if to_process:
+        _record_indexed_files(per_file_docs)
 
     return build_multimodal_rag_chain(retriever)
 

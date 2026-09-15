@@ -373,6 +373,49 @@ output (and the CLI's "Citations:" section, and the API's `citations` response
 field) comes from the tracked metadata directly, independent of whether the
 model actually mentioned it.
 
+## Where embeddings are stored, and skipping unchanged/deleted documents
+
+Two separate stores, both persisted to disk (not in-memory-only):
+
+- **Embeddings** ([retrieval/vector_store.py](retrieval/vector_store.py)) --
+  Chroma, persisted to `CHROMA_PERSIST_DIR` (default `./data/chroma_db`).
+- **Raw content** shown to the LLM (text/tables/images) --
+  [retrieval/doc_store.py](retrieval/doc_store.py), Redis.
+
+Every chunk/image gets a **deterministic ID** (a hash of its content, not a
+random UUID -- see `retrieval/multi_vector_retriever.py`'s `content_id()`),
+so re-indexing unchanged content always maps to the same vectorstore ID
+instead of creating duplicates, and lets the pipeline check "is this exact
+content already embedded" before paying for a new embedding call.
+
+On top of that, [retrieval/index_manifest.py](retrieval/index_manifest.py)
+tracks, per source file, which chunk/image IDs came from it. This is what
+`main.py`'s `build_pipeline()` uses to, on every run (in auto-discovery mode,
+i.e. no explicit `--pdf-path`/`--pdf-url`):
+
+1. **Skip unchanged files entirely** -- if a file's content *and* every
+   chunking-relevant setting (`UNSTRUCTURED_STRATEGY`, `CHUNKING_STRATEGY`,
+   `MAX_CHARACTERS`, `NEW_AFTER_N_CHARS`, `COMBINE_TEXT_UNDER_N_CHARS`) match
+   what was recorded last time, it's never even re-partitioned. This isn't
+   about API cost (partitioning is local CPU, not billed) -- it's about not
+   making you wait for Unstructured to re-parse a document that hasn't
+   changed. Changing any of those settings correctly forces a re-partition
+   rather than silently serving stale chunks.
+2. **Clean up changed files' old chunks** -- if a file's content *did*
+   change, its previous chunk/image IDs are deleted from Chroma/Redis before
+   the new ones are written, so a file that now produces fewer chunks than
+   before doesn't leave orphaned leftovers.
+3. **Prune deleted files** -- any file recorded in the manifest that's no
+   longer among the currently discovered documents (removed from `data/`)
+   has its chunk/image IDs deleted from both stores, so removing a file
+   actually removes it from what the RAG can retrieve, instead of leaving it
+   searchable forever.
+
+You'll see this in the console output: `"Skipping N unchanged document(s)
+already indexed"`, `"Pruned deleted document from the index: ..."`, and (from
+the separate per-chunk caches) `"N summaries reused from cache"` / `"N
+embeddings reused (already indexed)"`.
+
 ## Interactive API (FastAPI + Swagger)
 
 For a browser-based Q&A experience instead of the CLI, run:

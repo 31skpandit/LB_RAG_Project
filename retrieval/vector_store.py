@@ -15,4 +15,8 @@ def get_vector_store(collection_name: str = None, embedding_function=None) -> Ch
         collection_name=collection_name or settings.CHROMA_COLLECTION_NAME,
         embedding_function=embedding_function or get_embedding_model(),
         collection_metadata={"hnsw:space": "cosine"},
+        # Without this, Chroma is in-memory-only and the whole vector index
+        # is lost on every process exit -- see CHROMA_PERSIST_DIR in
+        # config/settings.py for why this matters.
+        persist_directory=settings.CHROMA_PERSIST_DIR,
     )

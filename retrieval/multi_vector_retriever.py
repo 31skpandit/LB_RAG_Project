@@ -31,7 +31,15 @@ def create_multi_vector_retriever(
     """Create a retriever that indexes summaries but returns raw text/table/image content."""
     id_key = id_key or settings.RETRIEVER_ID_KEY
 
-    retriever = MultiVectorRetriever(vectorstore=vectorstore, docstore=docstore, id_key=id_key)
+    # RETRIEVAL_K controls how many documents get pulled into context per
+    # question -- directly controls the input-token cost of every final-answer
+    # call (the cost that scales with ongoing usage, not just indexing).
+    retriever = MultiVectorRetriever(
+        vectorstore=vectorstore,
+        docstore=docstore,
+        id_key=id_key,
+        search_kwargs={"k": settings.RETRIEVAL_K},
+    )
 
     _add_documents(retriever, text_summaries, texts, id_key)
     _add_documents(retriever, table_summaries, tables, id_key)

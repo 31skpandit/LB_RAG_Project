@@ -40,7 +40,7 @@ class Settings:
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
-    GEMINI_CHAT_MODEL: str = os.getenv("GEMINI_CHAT_MODEL", "gemini-1.5-flash")
+    GEMINI_CHAT_MODEL: str = os.getenv("GEMINI_CHAT_MODEL", "gemini-3.6-flash")
     GEMINI_EMBEDDING_MODEL: str = os.getenv("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-001")
 
     # Ollama runs models locally, so no API key is needed. OLLAMA_CHAT_MODEL must
@@ -92,13 +92,6 @@ class Settings:
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
     GROQ_BASE_URL: str = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
     GROQ_CHAT_MODEL: str = os.getenv("GROQ_CHAT_MODEL", "qwen/qwen3.6-27b")
-    # Groq's free tier enforces output-tokens-per-minute (OTPM), separate from
-    # (and tighter than) the general tokens-per-minute limit -- 1000 OTPM for
-    # qwen/qwen3.6-27b as of writing. Without an explicit cap, the client lets
-    # the model request as many output tokens as its max context allows, which
-    # trips a 429 immediately. 500 leaves headroom under 1000 for a 2nd request
-    # in the same minute; lower it further if you still see 429s.
-    GROQ_MAX_TOKENS: int = int(os.getenv("GROQ_MAX_TOKENS", "500"))
 
     # DeepSeek's official API, OpenAI-compatible. Get a key at
     # https://platform.deepseek.com/api_keys (pay-as-you-go, no free tier, but
@@ -114,6 +107,45 @@ class Settings:
     DEEPSEEK_CHAT_MODEL: str = os.getenv("DEEPSEEK_CHAT_MODEL", "deepseek-flash")
 
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0"))
+    # Caps output length on every chat call, across all three call sites
+    # (summarization, image summarization, final answer) and every provider --
+    # replaces the old Groq-only GROQ_MAX_TOKENS. Each provider's chat class
+    # uses a different field name for this (confirmed by reading each
+    # package's source, not guessed): ChatOpenAI (openai/qwen/groq/deepseek)
+    # uses `max_tokens`, ChatGoogleGenerativeAI (gemini) uses
+    # `max_output_tokens`, ChatOllama uses `num_predict` -- config/llm_factory.py
+    # maps this one setting to the right field per provider. A low cap
+    # protects against runaway verbose answers (and, for "thinking" models,
+    # can cause an EMPTY response if the model spends its whole budget on
+    # reasoning before reaching a final answer -- raise this if you see that
+    # rather than assuming the pipeline is broken).
+    LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "200"))
+
+    # Number of documents the multi-vector retriever pulls per question.
+    # Directly controls how much context (and therefore how many input
+    # tokens) goes into every final-answer call -- this is the setting that
+    # scales with ongoing usage (every question pays this cost), unlike the
+    # one-time indexing cost of summarization. Lower = cheaper + faster but
+    # less context for the model to draw on; raise it if answers seem to be
+    # missing relevant information that you know is in the indexed documents.
+    RETRIEVAL_K: int = int(os.getenv("RETRIEVAL_K", "3"))
+
+    # Summarization (text/table/image, at indexing time) is a mechanical task
+    # that doesn't need your best/most expensive model -- kept separate from
+    # LLM_PROVIDER (used only for the final answer the user actually reads).
+    # Restricted to openai/gemini: both are cheap, fast, and vision-capable,
+    # unlike some of the other providers this project supports.
+    SUMMARY_PROVIDERS = ("openai", "gemini")
+    # Default openai, not gemini: Gemini's free-tier flash models can have a
+    # severely restrictive RPM quota (confirmed live: gemini-3.6-flash's free
+    # tier is 5 requests/minute), which trips immediately when summarizing
+    # more than a handful of chunks. openai/gpt-4o-mini has much higher rate
+    # limits on a paid account and is still cheap. Switch to gemini if you're
+    # summarizing few enough chunks to stay under its RPM quota, or are on a
+    # paid Gemini tier.
+    SUMMARY_PROVIDER: str = os.getenv("SUMMARY_PROVIDER", "openai")
+    SUMMARY_OPENAI_MODEL: str = os.getenv("SUMMARY_OPENAI_MODEL", "gpt-4o-mini")
+    SUMMARY_GEMINI_MODEL: str = os.getenv("SUMMARY_GEMINI_MODEL", "gemini-3.6-flash")
 
     # Data sources
     # When no --pdf-path/--pdf-url is given, main.py auto-discovers and
@@ -257,6 +289,13 @@ if settings.UNSTRUCTURED_STRATEGY not in settings.UNSTRUCTURED_STRATEGIES:
     raise ValueError(
         f"Invalid UNSTRUCTURED_STRATEGY {settings.UNSTRUCTURED_STRATEGY!r}. "
         f"Expected one of {settings.UNSTRUCTURED_STRATEGIES}."
+    )
+
+if settings.SUMMARY_PROVIDER not in settings.SUMMARY_PROVIDERS:
+    raise ValueError(
+        f"Invalid SUMMARY_PROVIDER {settings.SUMMARY_PROVIDER!r}. "
+        f"Expected one of {settings.SUMMARY_PROVIDERS} (kept restricted to cheap, "
+        f"vision-capable providers for indexing-time summarization)."
     )
 
 

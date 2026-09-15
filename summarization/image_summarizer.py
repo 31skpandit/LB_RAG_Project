@@ -8,7 +8,8 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
 from config import settings
-from config.llm_factory import get_chat_model
+from config.llm_factory import get_summary_model
+from summarization.cache import get_cached_summary, set_cached_summary
 
 IMAGE_SUMMARY_PROMPT = """You are an assistant tasked with summarizing images for retrieval.
             Remember these images could potentially contain graphs, charts or tables also.
@@ -25,7 +26,7 @@ def encode_image(image_path: str) -> str:
 
 
 def summarize_image(img_base64: str, prompt: str = IMAGE_SUMMARY_PROMPT, llm: BaseChatModel = None) -> str:
-    llm = llm or get_chat_model()
+    llm = llm or get_summary_model()
     msg = llm.invoke(
         [
             HumanMessage(
@@ -44,7 +45,8 @@ def generate_img_summaries(figures_dir: str = None, llm: BaseChatModel = None) -
 
     Recursive so this also picks up the per-PDF subdirectories main.py creates
     when indexing multiple PDFs (e.g. figures_dir/<pdf_stem>/*.jpg), not just
-    files directly inside figures_dir.
+    files directly inside figures_dir. Skips re-summarizing images already
+    cached from a previous run (see summarization/cache.py).
 
     Returns (base64_images, image_summaries), both in path-sorted order.
     """
@@ -56,9 +58,24 @@ def generate_img_summaries(figures_dir: str = None, llm: BaseChatModel = None) -
     if not os.path.isdir(figures_dir):
         return img_base64_list, image_summaries
 
+    provider = settings.SUMMARY_PROVIDER
+    model = settings.SUMMARY_GEMINI_MODEL if provider == "gemini" else settings.SUMMARY_OPENAI_MODEL
+    cached_count = 0
+
     for img_path in sorted(glob.glob(os.path.join(figures_dir, "**", "*.jpg"), recursive=True)):
         base64_image = encode_image(img_path)
         img_base64_list.append(base64_image)
-        image_summaries.append(summarize_image(base64_image, llm=llm))
+
+        cached = get_cached_summary(base64_image, provider, model)
+        if cached is not None:
+            cached_count += 1
+            image_summaries.append(cached)
+        else:
+            summary = summarize_image(base64_image, llm=llm)
+            set_cached_summary(base64_image, provider, model, summary)
+            image_summaries.append(summary)
+
+    if cached_count:
+        print(f"  {cached_count} image summaries reused from cache, {len(img_base64_list) - cached_count} newly summarized")
 
     return img_base64_list, image_summaries

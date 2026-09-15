@@ -16,26 +16,34 @@ CUSTOM_STRATEGIES = {"recursive", "sentence", "paragraph"}
 SUPPORTED_STRATEGIES = NATIVE_STRATEGIES | CUSTOM_STRATEGIES
 
 
-def _make_composite_docs(chunks: List[str]) -> List[Document]:
-    """Wrap raw text chunks as Documents matching Unstructured's CompositeElement shape."""
-    return [
-        Document(page_content=chunk.strip(), metadata={"category": "CompositeElement"})
-        for chunk in chunks
-        if chunk.strip()
-    ]
+def _make_composite_docs(chunks: List[str], source: str = None) -> List[Document]:
+    """Wrap raw text chunks as Documents matching Unstructured's CompositeElement shape.
+
+    `source` is stamped onto every chunk's metadata so citations still work
+    for the custom chunking strategies -- these join all raw elements' text
+    together before re-splitting, which otherwise loses each element's
+    original source/filename/page_number metadata entirely (page_number
+    specifically can't be preserved this way, since one joined chunk can span
+    text from multiple original pages; source/filename can, since all raw
+    elements passed in come from the same document).
+    """
+    metadata = {"category": "CompositeElement"}
+    if source:
+        metadata["source"] = source
+    return [Document(page_content=chunk.strip(), metadata=dict(metadata)) for chunk in chunks if chunk.strip()]
 
 
-def chunk_recursive(text: str, new_after_n_chars: int) -> List[Document]:
+def chunk_recursive(text: str, new_after_n_chars: int, source: str = None) -> List[Document]:
     """Split text recursively by paragraph -> line -> sentence -> word as needed."""
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=new_after_n_chars,
         chunk_overlap=0,
         separators=["\n\n", "\n", ". ", " ", ""],
     )
-    return _make_composite_docs(splitter.split_text(text))
+    return _make_composite_docs(splitter.split_text(text), source=source)
 
 
-def chunk_by_sentence(text: str, max_characters: int) -> List[Document]:
+def chunk_by_sentence(text: str, max_characters: int, source: str = None) -> List[Document]:
     """Group whole sentences together until the combined length nears max_characters."""
     from nltk.tokenize import sent_tokenize
 
@@ -48,10 +56,10 @@ def chunk_by_sentence(text: str, max_characters: int) -> List[Document]:
             current = f"{current} {sentence}".strip()
     if current:
         chunks.append(current)
-    return _make_composite_docs(chunks)
+    return _make_composite_docs(chunks, source=source)
 
 
-def chunk_by_paragraph(text: str, max_characters: int) -> List[Document]:
+def chunk_by_paragraph(text: str, max_characters: int, source: str = None) -> List[Document]:
     """Group whole paragraphs (blank-line separated) together until max_characters is reached."""
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     chunks, current = [], ""
@@ -63,7 +71,7 @@ def chunk_by_paragraph(text: str, max_characters: int) -> List[Document]:
             current = f"{current}\n\n{paragraph}".strip()
     if current:
         chunks.append(current)
-    return _make_composite_docs(chunks)
+    return _make_composite_docs(chunks, source=source)
 
 
 def apply_custom_chunking(
@@ -76,12 +84,17 @@ def apply_custom_chunking(
     text_elements = [d for d in raw_documents if d.metadata.get("category") != "Table"]
     text = "\n\n".join(doc.page_content for doc in text_elements if doc.page_content.strip())
 
+    # All raw_documents come from partitioning a single file (see
+    # data_ingestion/document_loader.py), so any one element's source applies
+    # to the whole joined text.
+    source = next((d.metadata.get("filename") or d.metadata.get("source") for d in raw_documents), None)
+
     if strategy == "recursive":
-        return chunk_recursive(text, new_after_n_chars)
+        return chunk_recursive(text, new_after_n_chars, source=source)
     if strategy == "sentence":
-        return chunk_by_sentence(text, max_characters)
+        return chunk_by_sentence(text, max_characters, source=source)
     if strategy == "paragraph":
-        return chunk_by_paragraph(text, max_characters)
+        return chunk_by_paragraph(text, max_characters, source=source)
 
     raise ValueError(
         f"Unsupported custom chunking strategy: {strategy!r}. "

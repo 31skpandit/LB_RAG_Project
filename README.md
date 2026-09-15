@@ -136,7 +136,7 @@ All settings live in `config/settings.py` and are overridable via `.env` (see
 | `CHATGPT_MODEL`                | `gpt-4o`       | Chat model for summaries & answers                    |
 | `EMBEDDING_MODEL`              | `text-embedding-3-small` | Embedding model for the vector store        |
 | `GOOGLE_API_KEY`               | (required for `gemini`) | LLM/embedding calls, free tier             |
-| `GEMINI_CHAT_MODEL`            | `gemini-1.5-flash` | Chat model for summaries & answers                |
+| `GEMINI_CHAT_MODEL`            | `gemini-3.6-flash` | Chat model for summaries & answers                |
 | `GEMINI_EMBEDDING_MODEL`       | `models/gemini-embedding-001` | Embedding model for the vector store |
 | `OLLAMA_BASE_URL`              | `http://localhost:11434` | Local Ollama server URL                     |
 | `OLLAMA_CHAT_MODEL`            | `qwen3-vl:2b`  | Chat model for summaries & answers (must support vision) |
@@ -149,7 +149,6 @@ All settings live in `config/settings.py` and are overridable via `.env` (see
 | `GROQ_API_KEY`                 | (required for `groq`) | LLM/embedding calls, free tier, no country lock |
 | `GROQ_BASE_URL`                | `https://api.groq.com/openai/v1` | Groq's OpenAI-compatible API base URL   |
 | `GROQ_CHAT_MODEL`              | `qwen/qwen3.6-27b` | Chat model for summaries & answers (must support vision) |
-| `GROQ_MAX_TOKENS`              | `500`          | Caps output tokens per call (see rate limits below)   |
 | `DEEPSEEK_API_KEY`             | (required for `deepseek`) | LLM calls, pay-as-you-go, no free tier    |
 | `DEEPSEEK_BASE_URL`            | `https://api.deepseek.com` | DeepSeek's OpenAI-compatible API base URL |
 | `DEEPSEEK_CHAT_MODEL`          | `deepseek-flash` | Chat model for summaries & answers (must support vision) |
@@ -157,6 +156,11 @@ All settings live in `config/settings.py` and are overridable via `.env` (see
 | `MAX_CHARACTERS`               | `4000`         | Max chars per chunk                                   |
 | `NEW_AFTER_N_CHARS`            | `4000`         | Soft chunk-size target                                |
 | `COMBINE_TEXT_UNDER_N_CHARS`   | `2000`         | Merge small elements below this size                  |
+| `LLM_MAX_TOKENS`               | `200`          | Caps output tokens on every chat call, every provider (see Cost controls below) |
+| `RETRIEVAL_K`                  | `3`            | Documents retrieved per question (see Cost controls below) |
+| `SUMMARY_PROVIDER`             | `openai`       | `openai` or `gemini` only — used for indexing-time summarization instead of `LLM_PROVIDER` (see Cost controls below) |
+| `SUMMARY_OPENAI_MODEL`         | `gpt-4o-mini`  | Cheap summarization model when `SUMMARY_PROVIDER=openai` |
+| `SUMMARY_GEMINI_MODEL`         | `gemini-3.6-flash` | Cheap summarization model when `SUMMARY_PROVIDER=gemini` |
 
 ### LLM provider toggle
 
@@ -199,9 +203,9 @@ for your account's current limits):
   tokens/day** -- but **output tokens are capped separately and tighter, at
   1,000/min (OTPM)**. This is the limit you'll actually hit in practice: with
   no cap set, the client requests as many output tokens as the model's max
-  context allows, which trips a 429 on the very first call. `GROQ_MAX_TOKENS`
-  (default `500`) caps each response so a single call fits under the OTPM
-  budget with room for a second call in the same minute.
+  context allows, which trips a 429 on the very first call. `LLM_MAX_TOKENS`
+  (default `200`, applies to every provider -- see Cost controls below) caps
+  each response so a single call fits comfortably under the OTPM budget.
 - Limits apply per organization, not per API key — multiple keys don't add up.
 - **Groq's vision models are labeled "preview"** — Alibaba/Groq can rename or
   retire them with little notice. If `GROQ_CHAT_MODEL` ever 404s, check
@@ -211,11 +215,11 @@ for your account's current limits):
   currently retry/backoff automatically. `summarization/text_table_summarizer.py`
   defaults `max_concurrency=1` (serial calls) to stay well under the 30 RPM /
   1,000 OTPM limits — raise it only if you've confirmed your account can take it.
-- **Caution combining a low `GROQ_MAX_TOKENS` with a "thinking" model**: models
+- **Caution combining a low `LLM_MAX_TOKENS` with a "thinking" model**: models
   like `qwen/qwen3.6-27b` spend part of their output budget on internal
-  reasoning before writing the final answer. If `GROQ_MAX_TOKENS` is too tight,
+  reasoning before writing the final answer. If `LLM_MAX_TOKENS` is too tight,
   the model can exhaust its budget mid-reasoning and return an empty response
-  instead of a 429 — if you see that, raise `GROQ_MAX_TOKENS` a bit rather than
+  instead of a 429 — if you see that, raise `LLM_MAX_TOKENS` a bit rather than
   assuming the pipeline is broken.
 
 To use DeepSeek (API): create a key at
@@ -226,7 +230,8 @@ DeepSeek's OpenAI-compatible endpoint via `langchain-openai`, so no extra
 dependency needed. `deepseek-flash` (default) supports vision, needed for
 image summaries; `deepseek-v4-pro` is higher quality but text-only. Rate
 limiting is dynamic/concurrency-based rather than a harsh fixed RPM like
-Groq/Gemini's free tiers, so this shouldn't need a `GROQ_MAX_TOKENS`-style cap.
+Groq/Gemini's free tiers, so it's less likely to need a tight `LLM_MAX_TOKENS`
+specifically to dodge rate limits (the default still applies for cost reasons).
 
 To use DeepSeek (local, via Ollama): needs **no code changes at all** — it's
 just a model name under the existing `ollama` provider. Run
@@ -287,6 +292,47 @@ implementation in Unstructured); the other three are implemented in
 `processing/chunking.py` and applied afterwards on the raw unchunked elements.
 Set it in `.env`, e.g. `CHUNKING_STRATEGY=sentence`, then rerun `python main.py`
 to compare results.
+
+### Cost controls
+
+Four settings specifically to control LLM token spend:
+
+- **`LLM_MAX_TOKENS`** (default `200`) -- caps output length on every chat
+  call, every provider, all three call sites (summarization, image
+  summarization, final answer). `config/llm_factory.py` maps this one setting
+  to the field name each provider's LangChain class actually uses (confirmed
+  by reading each package's source): `max_tokens` for `ChatOpenAI`
+  (openai/qwen/groq/deepseek), `max_output_tokens` for
+  `ChatGoogleGenerativeAI` (gemini), `num_predict` for `ChatOllama`. A cap
+  this tight can cause a "thinking" model to exhaust its budget mid-reasoning
+  and return an empty response rather than a full answer -- raise it if that
+  happens rather than assuming the pipeline is broken.
+- **`RETRIEVAL_K`** (default `3`) -- how many documents the multi-vector
+  retriever pulls into context per question. This is the setting that scales
+  with *ongoing usage*: every question asked pays for this much context,
+  unlike summarization, which is a one-time indexing cost. Lower = cheaper
+  and faster, but less context for the model to draw on.
+- **`SUMMARY_PROVIDER`** (default `openai`, one of `openai`/`gemini` only) --
+  text/table/image summarization at indexing time uses this cheap, restricted
+  toggle instead of `LLM_PROVIDER`. Summarization is a mechanical task that
+  doesn't need your best/most expensive model; `LLM_PROVIDER` continues to
+  control only the final answer synthesis the user actually reads.
+  `SUMMARY_OPENAI_MODEL` (`gpt-4o-mini`) / `SUMMARY_GEMINI_MODEL`
+  (`gemini-3.6-flash`) pick the actual model for each option. Defaults to
+  `openai`, not `gemini`: Gemini's free-tier flash models can have a
+  severely restrictive RPM quota (confirmed live: `gemini-3.6-flash`'s free
+  tier is 5 requests/minute), which trips immediately past a handful of
+  chunks -- fine if you're on a paid Gemini tier or summarizing very few
+  chunks, but `openai`/`gpt-4o-mini` is the safer default for a real document.
+- **Summary caching** (`summarization/cache.py`, always on, no setting) --
+  every text/table/image summary is cached in Redis, keyed by a hash of its
+  content plus which `SUMMARY_PROVIDER`/model produced it. Restarting the
+  pipeline on unchanged documents reuses cached summaries instead of
+  re-summarizing (and re-paying for) identical content -- you'll see
+  `"N summaries reused from cache"` printed when this kicks in. Switching
+  `SUMMARY_PROVIDER` (or its model) naturally misses the cache and
+  re-summarizes with the new one, rather than silently reusing an older
+  provider's output.
 
 ## Multi-format ingestion
 
